@@ -19,13 +19,48 @@ const fixLeafletIcon = () => {
   })
 }
 
+// Define proper types
+interface Location {
+  lat: number
+  lng: number
+  name: string
+}
+
+interface RouteProperties {
+  name: string
+  color: string
+}
+
+interface RouteGeometry {
+  type: string
+  coordinates: number[][]
+}
+
+interface Route {
+  type: string
+  properties: RouteProperties
+  geometry: RouteGeometry
+  distance?: number
+}
+
 interface MapComponentProps {
-  selectedLocation: {
-    lat: number
-    lng: number
-    name: string
-  } | null
-  routes: any[]
+  selectedLocation: Location | null
+  routes: Route[]
+}
+
+interface NearestPointInfo {
+  point: [number, number]
+  distance: number
+}
+
+interface UserLocation {
+  lat: number
+  lng: number
+}
+
+interface ArrowMarker {
+  marker: L.Marker
+  position: number
 }
 
 export default function MapComponent({ selectedLocation, routes }: MapComponentProps) {
@@ -33,16 +68,13 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const routeLayersRef = useRef<L.Layer[]>([])
   const animationLayersRef = useRef<L.Layer[]>([])
-  const animationIntervalsRef = useRef<number[]>([])
+  const animationIntervalsRef = useRef<NodeJS.Timeout[]>([])
   const nearestPointMarkerRef = useRef<L.Marker | null>(null)
-  const [recommendedRoutes, setRecommendedRoutes] = useState<any[]>([])
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [recommendedRoutes, setRecommendedRoutes] = useState<Route[]>([])
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
   const userMarkerRef = useRef<L.Marker | null>(null)
   const [activeRouteIndex, setActiveRouteIndex] = useState<number>(0)
-  const [nearestPointInfo, setNearestPointInfo] = useState<{
-    point: [number, number]
-    distance: number
-  } | null>(null)
+  const [nearestPointInfo, setNearestPointInfo] = useState<NearestPointInfo | null>(null)
 
   useEffect(() => {
     fixLeafletIcon()
@@ -75,16 +107,16 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
 
       // Clear any ongoing animations
       animationIntervalsRef.current.forEach((interval) => {
-        clearInterval(interval)
+        clearTimeout(interval)
       })
       animationIntervalsRef.current = []
     }
   }, [])
 
-  const getUserLocation = () => {
+  const getUserLocation = (): void => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
+        (position: GeolocationPosition) => {
           const { latitude, longitude } = position.coords
           setUserLocation({ lat: latitude, lng: longitude })
 
@@ -119,57 +151,51 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
             }
           }
         },
-        (error) => {
+        (error: GeolocationPositionError) => {
           console.error("Error getting location:", error)
         },
       )
     }
   }
 
-  const updateRoutes = () => {
-    if (!mapRef.current || !selectedLocation) return
-
-    // Clear previous routes
+  const updateRoutes = (): void => {
+    if (!mapRef.current || !selectedLocation || !userLocation) return
+  
+    // Clear previous
     routeLayersRef.current.forEach((layer) => {
       mapRef.current?.removeLayer(layer)
     })
     routeLayersRef.current = []
-
-    // Clear animation layers
+  
     animationLayersRef.current.forEach((layer) => {
       mapRef.current?.removeLayer(layer)
     })
     animationLayersRef.current = []
-
-    // Clear animation intervals
+  
     animationIntervalsRef.current.forEach((interval) => {
-      clearInterval(interval)
+      clearTimeout(interval)
     })
     animationIntervalsRef.current = []
-
-    // Calculate distances for all routes based on the DESTINATION (search location)
-    const routesWithDistance = routes.map((route) => {
-      const minDistance = findMinDistanceToRoute(selectedLocation, route)
+  
+    // Recalculate using user's location
+    const routesWithDistance: Route[] = routes.map((route) => {
+      const minDistance = findMinDistanceToRoute(route)
       return { ...route, distance: minDistance }
-    })
-
-    // Sort routes by distance to the destination
-    const sortedRoutes = [...routesWithDistance].sort((a, b) => a.distance - b.distance)
-
-    // Get top 3 closest routes to the destination (or fewer if there aren't 3)
+    }).filter(route => route.distance !== Number.POSITIVE_INFINITY) // keep only valid
+  
+    // Sort routes by nearest boarding point
+    const sortedRoutes = routesWithDistance.sort((a, b) => (a.distance || 0) - (b.distance || 0))
+  
     const topRoutes = sortedRoutes.slice(0, 3)
     setRecommendedRoutes(topRoutes)
-
-    // Reset active route index
     setActiveRouteIndex(0)
-
-    // Only render the closest route initially
+  
     if (topRoutes.length > 0) {
       renderRoute(topRoutes[0])
     }
   }
 
-  const renderRoute = (route: any) => {
+  const renderRoute = (route: Route): void => {
     if (!mapRef.current) return
 
     // Clear previous routes
@@ -186,21 +212,23 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
 
     // Clear animation intervals
     animationIntervalsRef.current.forEach((interval) => {
-      clearInterval(interval)
+      clearTimeout(interval)
     })
     animationIntervalsRef.current = []
 
     // Add the route to the map
-    const routeLayer = L.geoJSON(route as any, {
+    const routeLayer = L.geoJSON(route as GeoJSON.Feature, {
       style: () => ({
         color: route.properties.color,
         weight: 7,
         opacity: 0.9,
       }),
-      onEachFeature: (feature, layer) => {
-        const popupContent = `<b>${route.properties.name}</b><br>Distance to destination: ${route.distance.toFixed(2)} km`
-        layer.bindPopup(popupContent)
-        layer.openPopup()
+      onEachFeature: (feature: GeoJSON.Feature, layer: L.Layer) => {
+        const popupContent = `<b>${route.properties.name}</b><br>Distance to destination: ${(route.distance || 0).toFixed(2)} km`
+        if (layer instanceof L.Path) {
+          layer.bindPopup(popupContent)
+          layer.openPopup()
+        }
       },
     }).addTo(mapRef.current)
 
@@ -215,7 +243,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     }
   }
 
-  const createRouteAnimation = (route: any) => {
+  const createRouteAnimation = (route: Route): void => {
     if (!mapRef.current) return
 
     const coordinates = route.geometry.coordinates
@@ -240,7 +268,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     const step = Math.max(Math.floor(coordinates.length / arrowCount), 1)
 
     // Create arrow markers but don't add them to the map yet
-    const arrowMarkers = []
+    const arrowMarkers: ArrowMarker[] = []
     for (let i = 0; i < coordinates.length - step; i += step) {
       const start = coordinates[i]
       const end = coordinates[i + step]
@@ -276,7 +304,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     const visibleArrows = 3 // Number of arrows visible at once
 
     // Function to update visible arrows
-    const updateArrows = () => {
+    const updateArrows = (): void => {
       // Remove all current arrows from map
       animationLayersRef.current.forEach((layer) => {
         mapRef.current?.removeLayer(layer)
@@ -287,16 +315,18 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
       for (let i = 0; i < visibleArrows; i++) {
         const arrowIndex = (currentArrowIndex + i) % totalArrows
         const arrow = arrowMarkers[arrowIndex]
-        arrow.marker.addTo(mapRef.current!)
-        animationLayersRef.current.push(arrow.marker)
+        if (mapRef.current) {
+          arrow.marker.addTo(mapRef.current)
+          animationLayersRef.current.push(arrow.marker)
 
-        // Add fade in/out animation
-        const arrowElement = arrow.marker.getElement()
-        if (arrowElement) {
-          const arrowDiv = arrowElement.querySelector("div")
-          if (arrowDiv) {
-            arrowDiv.style.animation = "fadeInOut 1.5s infinite"
-            arrowDiv.style.animationDelay = `${i * 0.2}s` // Stagger the animations
+          // Add fade in/out animation
+          const arrowElement = arrow.marker.getElement()
+          if (arrowElement) {
+            const arrowDiv = arrowElement.querySelector("div") as HTMLElement
+            if (arrowDiv) {
+              arrowDiv.style.animation = "fadeInOut 1.5s infinite"
+              arrowDiv.style.animationDelay = `${i * 0.2}s` // Stagger the animations
+            }
           }
         }
       }
@@ -311,7 +341,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     animationIntervalsRef.current.push(animationInterval)
   }
 
-  const calculateAngle = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const calculateAngle = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
     const dLng = lng2 - lng1
     const y = Math.sin(dLng) * Math.cos(lat2)
     const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
@@ -319,7 +349,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     return angle
   }
 
-  const updateNearestPointMarker = (route: any) => {
+  const updateNearestPointMarker = (route: Route): void => {
     if (!mapRef.current || !userLocation) return
 
     // Find nearest point on the route to the user
@@ -360,7 +390,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     nearestPointMarkerRef.current.openPopup()
   }
 
-  const findNearestPointOnRoute = (point: { lat: number; lng: number }, route: any) => {
+  const findNearestPointOnRoute = (point: UserLocation, route: Route): NearestPointInfo => {
     const coordinates = route.geometry.coordinates
     let minDistance = Number.POSITIVE_INFINITY
     let nearestPoint: [number, number] = [0, 0]
@@ -424,8 +454,8 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
 
   // Update nearest point when user location changes
   useEffect(() => {
-    if (userLocation && recommendedRoutes.length > 0) {
-      updateNearestPointMarker(recommendedRoutes[activeRouteIndex])
+    if (userLocation && selectedLocation) {
+      updateRoutes()
     }
   }, [userLocation])
 
@@ -436,38 +466,45 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     }
   }, [activeRouteIndex])
 
-  const findMinDistanceToRoute = (point: { lat: number; lng: number }, route: any) => {
-    let minDistance = Number.POSITIVE_INFINITY
-    const coordinates = route.geometry.coordinates
-
-    coordinates.forEach((coord: number[], index: number) => {
-      const distance = calculateDistance(
-        point.lat,
-        point.lng,
-        coord[1], // lat
-        coord[0], // lng
-      )
-
-      if (distance < minDistance) {
-        // Check if the point is moving towards the destination
-        if (index < coordinates.length - 1) {
-          const nextCoord = coordinates[index + 1]
-          const angleToNext = calculateAngle(coord[1], coord[0], nextCoord[1], nextCoord[0])
-          const angleToDestination = calculateAngle(coord[1], coord[0], selectedLocation.lat, selectedLocation.lng)
-          const angleDifference = Math.abs(angleToNext - angleToDestination)
-
-          // If the angle difference is less than 90 degrees, consider it moving towards the destination
-          if (angleDifference < 90) {
-            minDistance = distance
-          }
+  const findMinDistanceToRoute = (route: Route): number => {
+    if (!userLocation || !selectedLocation) return Number.POSITIVE_INFINITY;
+  
+    let minDistance = Number.POSITIVE_INFINITY;
+    const coordinates = route.geometry.coordinates;
+  
+    for (let i = 0; i < coordinates.length - 1; i++) {
+      const current = coordinates[i];
+      const next = coordinates[i + 1];
+  
+      // Check if this segment moves closer to the destination.
+      const distToDestCurrent = calculateDistance(
+        current[1], current[0],
+        selectedLocation.lat, selectedLocation.lng
+      );
+  
+      const distToDestNext = calculateDistance(
+        next[1], next[0],
+        selectedLocation.lat, selectedLocation.lng
+      );
+  
+      if (distToDestNext < distToDestCurrent) {
+        // Segment moves toward the destination, so consider distance to user.
+        const distToUser = calculateDistance(
+          userLocation.lat, userLocation.lng,
+          current[1], current[0]
+        );
+  
+        if (distToUser < minDistance) {
+          minDistance = distToUser;
         }
       }
-    })
+    }
+  
+    return minDistance;
+  };
+  
 
-    return minDistance
-  }
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371 // Radius of the earth in km
     const dLat = deg2rad(lat2 - lat1)
     const dLon = deg2rad(lon2 - lon1)
@@ -479,27 +516,27 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     return d
   }
 
-  const deg2rad = (deg: number) => {
+  const deg2rad = (deg: number): number => {
     return deg * (Math.PI / 180)
   }
 
-  const handleZoomIn = () => {
+  const handleZoomIn = (): void => {
     if (mapRef.current) {
       mapRef.current.zoomIn()
     }
   }
 
-  const handleZoomOut = () => {
+  const handleZoomOut = (): void => {
     if (mapRef.current) {
       mapRef.current.zoomOut()
     }
   }
 
-  const handleLocate = () => {
+  const handleLocate = (): void => {
     getUserLocation()
   }
 
-  const handleRouteClick = (index: number) => {
+  const handleRouteClick = (index: number): void => {
     setActiveRouteIndex(index)
   }
 
@@ -544,7 +581,7 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
               >
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: route.properties.color }} />
                 <span className="flex-1">{route.properties.name}</span>
-                <span className="text-gray-500">{route.distance.toFixed(2)} km</span>
+                <span className="text-gray-500">{(route.distance || 0).toFixed(2)} km</span>
                 {index === 0 && (
                   <Badge variant="outline" className="ml-1 text-[10px] py-0 h-5">
                     Closest
@@ -559,4 +596,3 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     </div>
   )
 }
-
