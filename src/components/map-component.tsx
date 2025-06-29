@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { InfoIcon } from "lucide-react"
+import { ArrowMarker, Location, MapComponentProps, NearestPointInfo, Route, RouteGeometry, RouteProperties, UserLocation } from "@/commons/models/maps"
 
 // Fix Leaflet icon issues
 const fixLeafletIcon = () => {
@@ -19,49 +20,6 @@ const fixLeafletIcon = () => {
   })
 }
 
-// Define proper types
-interface Location {
-  lat: number
-  lng: number
-  name: string
-}
-
-interface RouteProperties {
-  name: string
-  color: string
-}
-
-interface RouteGeometry {
-  type: string
-  coordinates: number[][]
-}
-
-interface Route {
-  type: string
-  properties: RouteProperties
-  geometry: RouteGeometry
-  distance?: number
-}
-
-interface MapComponentProps {
-  selectedLocation: Location | null
-  routes: Route[]
-}
-
-interface NearestPointInfo {
-  point: [number, number]
-  distance: number
-}
-
-interface UserLocation {
-  lat: number
-  lng: number
-}
-
-interface ArrowMarker {
-  marker: L.Marker
-  position: number
-}
 
 export default function MapComponent({ selectedLocation, routes }: MapComponentProps) {
   const mapRef = useRef<L.Map | null>(null)
@@ -159,42 +117,33 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
   }
 
   const updateRoutes = (): void => {
-    if (!mapRef.current || !selectedLocation || !userLocation) return
+    if (!mapRef.current || !selectedLocation || !userLocation) return;
   
-    // Clear previous
-    routeLayersRef.current.forEach((layer) => {
-      mapRef.current?.removeLayer(layer)
-    })
-    routeLayersRef.current = []
+    routeLayersRef.current.forEach((layer) => mapRef.current?.removeLayer(layer));
+    routeLayersRef.current = [];
   
-    animationLayersRef.current.forEach((layer) => {
-      mapRef.current?.removeLayer(layer)
-    })
-    animationLayersRef.current = []
+    animationLayersRef.current.forEach((layer) => mapRef.current?.removeLayer(layer));
+    animationLayersRef.current = [];
   
-    animationIntervalsRef.current.forEach((interval) => {
-      clearTimeout(interval)
-    })
-    animationIntervalsRef.current = []
+    animationIntervalsRef.current.forEach((interval) => clearTimeout(interval));
+    animationIntervalsRef.current = [];
   
-    // Recalculate using user's location
-    const routesWithDistance: Route[] = routes.map((route) => {
-      const minDistance = findMinDistanceToRoute(route)
-      return { ...route, distance: minDistance }
-    }).filter(route => route.distance !== Number.POSITIVE_INFINITY) // keep only valid
+    const scoredRoutes: Route[] = routes.map((route) => ({
+      ...route,
+      distance: scoreRoute(route),  // store score in .distance for reuse
+    })).filter(route => route.distance !== Number.POSITIVE_INFINITY);
   
-    // Sort routes by nearest boarding point
-    const sortedRoutes = routesWithDistance.sort((a, b) => (a.distance || 0) - (b.distance || 0))
+    const sortedRoutes = scoredRoutes.sort((a, b) => (a.distance || 0) - (b.distance || 0));
   
-    const topRoutes = sortedRoutes.slice(0, 3)
-    setRecommendedRoutes(topRoutes)
-    setActiveRouteIndex(0)
+    const topRoutes = sortedRoutes.slice(0, 3);
+    setRecommendedRoutes(topRoutes);
+    setActiveRouteIndex(0);
   
     if (topRoutes.length > 0) {
-      renderRoute(topRoutes[0])
+      renderRoute(topRoutes[0]);
     }
-  }
-
+  };
+  
   const renderRoute = (route: Route): void => {
     if (!mapRef.current) return
 
@@ -466,42 +415,86 @@ export default function MapComponent({ selectedLocation, routes }: MapComponentP
     }
   }, [activeRouteIndex])
 
-  const findMinDistanceToRoute = (route: Route): number => {
+  const scoreRoute = (route: Route): number => {
     if (!userLocation || !selectedLocation) return Number.POSITIVE_INFINITY;
-  
-    let minDistance = Number.POSITIVE_INFINITY;
-    const coordinates = route.geometry.coordinates;
-  
-    for (let i = 0; i < coordinates.length - 1; i++) {
-      const current = coordinates[i];
-      const next = coordinates[i + 1];
-  
-      // Check if this segment moves closer to the destination.
-      const distToDestCurrent = calculateDistance(
-        current[1], current[0],
-        selectedLocation.lat, selectedLocation.lng
-      );
-  
-      const distToDestNext = calculateDistance(
-        next[1], next[0],
-        selectedLocation.lat, selectedLocation.lng
-      );
-  
-      if (distToDestNext < distToDestCurrent) {
-        // Segment moves toward the destination, so consider distance to user.
-        const distToUser = calculateDistance(
-          userLocation.lat, userLocation.lng,
-          current[1], current[0]
-        );
-  
-        if (distToUser < minDistance) {
-          minDistance = distToUser;
-        }
-      }
+
+  const coords = route.geometry.coordinates;
+
+  let nearestUserIndex = -1;
+  let nearestDestIndex = -1;
+  let minUserDist = Number.POSITIVE_INFINITY;
+  let minDestDist = Number.POSITIVE_INFINITY;
+
+  // Find nearest points on route for both user and destination
+  coords.forEach((coord, i) => {
+    const distToUser = calculateDistance(userLocation.lat, userLocation.lng, coord[1], coord[0]);
+    const distToDest = calculateDistance(selectedLocation.lat, selectedLocation.lng, coord[1], coord[0]);
+
+    if (distToUser < minUserDist) {
+      minUserDist = distToUser;
+      nearestUserIndex = i;
     }
+    if (distToDest < minDestDist) {
+      minDestDist = distToDest;
+      nearestDestIndex = i;
+    }
+  });
+
+  if (nearestUserIndex === -1 || nearestDestIndex === -1) return Number.POSITIVE_INFINITY;
+
+  // Check if route direction is valid (boarding point should be before destination)
+  if (nearestUserIndex >= nearestDestIndex) {
+    // If not, try reverse direction by checking if destination is significantly closer to start
+    // This handles routes that might go in different directions
+    const distFromStart = nearestDestIndex;
+    const distFromEnd = coords.length - 1 - nearestDestIndex;
+    
+    // If destination is closer to route start, this route might not be suitable
+    if (distFromStart < distFromEnd && nearestUserIndex > nearestDestIndex) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+
+  // Calculate route segment distance between boarding and destination points
+  let routeSegmentDistance = 0;
+  const startIndex = Math.min(nearestUserIndex, nearestDestIndex);
+  const endIndex = Math.max(nearestUserIndex, nearestDestIndex);
   
-    return minDistance;
+  for (let i = startIndex; i < endIndex; i++) {
+    const c1 = coords[i];
+    const c2 = coords[i + 1];
+    routeSegmentDistance += calculateDistance(c1[1], c1[0], c2[1], c2[0]);
+  }
+
+  // Calculate total route length for normalization
+  let totalRouteLength = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const c1 = coords[i];
+    const c2 = coords[i + 1];
+    totalRouteLength += calculateDistance(c1[1], c1[0], c2[1], c2[0]);
+  }
+
+  // Weighted scoring system
+  const weights = {
+    userToStop: 0.4,      // Distance from user to nearest jeepney stop
+    destToStop: 0.3,      // Distance from destination to nearest jeepney stop  
+    routeLength: 0.3      // Length of route segment (normalized)
   };
+
+  // Normalize route segment distance (0-1 scale based on total route length)
+  const normalizedRouteDistance = totalRouteLength > 0 ? routeSegmentDistance / totalRouteLength : 0;
+
+  // Calculate weighted score (lower is better)
+  const score = (
+    weights.userToStop * minUserDist +
+    weights.destToStop * minDestDist +
+    weights.routeLength * normalizedRouteDistance * 10 // Scale up route length factor
+  );
+
+  return score;
+  };
+  
+  
   
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
