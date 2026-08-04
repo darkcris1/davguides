@@ -120,3 +120,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Direction arrows along the ridden part of a jeepney route. */
+@keyframes dg-arrow-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dg-arrow {
+  animation: dg-arrow-pulse 2s ease-in-out infinite;
+}

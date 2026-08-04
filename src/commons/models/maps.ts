@@ -1,7 +1,3 @@
-// Define proper types
-
-// import { ArrowMarker, Location, MapComponentProps, NearestPointInfo, Route, RouteGeometry, RouteProperties, UserLocation } from "@/commons/models/maps"
-
 export interface Location {
   lat: number
   lng: number
@@ -14,25 +10,15 @@ export interface RouteProperties {
 }
 
 export interface RouteGeometry {
-  type: string
+  type: "LineString"
+  /** GeoJSON order: [lng, lat]. Everything downstream uses [lat, lng]. */
   coordinates: number[][]
 }
 
 export interface Route {
-  type: string
+  type: "Feature"
   properties: RouteProperties
   geometry: RouteGeometry
-  distance?: number
-}
-
-export interface MapComponentProps {
-  selectedLocation: Location | null
-  routes: Route[]
-}
-
-export interface NearestPointInfo {
-  point: [number, number]
-  distance: number
 }
 
 export interface UserLocation {
@@ -40,7 +26,7 @@ export interface UserLocation {
   lng: number
 }
 
-export interface ArrowMarker {
-  marker: L.Marker
-  position: number
+export interface MapComponentProps {
+  selectedLocation: Location | null
+  routes: Route[]
 }

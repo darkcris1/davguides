@@ -1,589 +1,149 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
-import { ZoomIn, ZoomOut, Locate } from "lucide-react"
+import { Locate, ZoomIn, ZoomOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { InfoIcon } from "lucide-react"
-import { ArrowMarker, Location, MapComponentProps, NearestPointInfo, Route, RouteGeometry, RouteProperties, UserLocation } from "@/commons/models/maps"
+import TripPanel from "@/components/trip-panel"
+import { getRouteIndex } from "@/lib/route-index"
+import { planTrips } from "@/lib/route-engine"
+import { renderTrip } from "@/lib/trip-render"
+import { useFareConfig } from "@/lib/use-fare-config"
+import type { MapComponentProps, UserLocation } from "@/commons/models/maps"
 
-// Fix Leaflet icon issues
-const fixLeafletIcon = () => {
-  delete (L.Icon.Default.prototype as any)._getIconUrl
-  L.Icon.Default.mergeOptions({
-    iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
-    iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
-    shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
-  })
-}
-
+const DAVAO_CENTER: [number, number] = [7.0507, 125.593]
 
 export default function MapComponent({ selectedLocation, routes }: MapComponentProps) {
-  const mapRef = useRef<L.Map | null>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const routeLayersRef = useRef<L.Layer[]>([])
-  const animationLayersRef = useRef<L.Layer[]>([])
-  const animationIntervalsRef = useRef<NodeJS.Timeout[]>([])
-  const nearestPointMarkerRef = useRef<L.Marker | null>(null)
-  const [recommendedRoutes, setRecommendedRoutes] = useState<Route[]>([])
+  const mapRef = useRef<L.Map | null>(null)
+  const tripLayerRef = useRef<L.LayerGroup | null>(null)
+
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null)
-  const userMarkerRef = useRef<L.Marker | null>(null)
-  const [activeRouteIndex, setActiveRouteIndex] = useState<number>(0)
-  const [nearestPointInfo, setNearestPointInfo] = useState<NearestPointInfo | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
 
-  useEffect(() => {
-    fixLeafletIcon()
+  const { fare, setFare, reset: resetFare, isDefault: fareIsDefault } = useFareConfig()
 
-    if (!mapContainerRef.current) return
+  // Built once per routes array and cached module-side, so this survives remounts.
+  const routeIndex = useMemo(() => getRouteIndex(routes), [routes])
 
-    // Initialize map if it doesn't exist
-    if (!mapRef.current) {
-      const map = L.map(mapContainerRef.current).setView([7.0507, 125.593], 13)
+  // Derived, not stored in state: the old code kept search results in state and
+  // rendered them imperatively, which left the selected route unable to change.
+  const trips = useMemo(() => {
+    if (!selectedLocation || !userLocation) return []
+    return planTrips(routes, userLocation, selectedLocation)
+  }, [routes, userLocation, selectedLocation])
 
-      // Use CARTO Voyager tile layer
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 19,
-      }).addTo(map)
-
-      mapRef.current = map
-
-      // Try to get user's location on initial load
-      getUserLocation()
+  const requestLocation = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocationError("This browser cannot report your location.")
+      return
     }
-
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove()
-        mapRef.current = null
-      }
-
-      // Clear any ongoing animations
-      animationIntervalsRef.current.forEach((interval) => {
-        clearTimeout(interval)
-      })
-      animationIntervalsRef.current = []
-    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationError(null)
+        setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
+      },
+      (error) => {
+        setLocationError(error.message)
+      },
+      { enableHighAccuracy: true, timeout: 10_000 },
+    )
   }, [])
 
-  const getUserLocation = (): void => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position: GeolocationPosition) => {
-          const { latitude, longitude } = position.coords
-          setUserLocation({ lat: latitude, lng: longitude })
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
 
-          if (mapRef.current) {
-            // Remove previous user marker if exists
-            if (userMarkerRef.current) {
-              mapRef.current.removeLayer(userMarkerRef.current)
-            }
+    const map = L.map(mapContainerRef.current, { zoomControl: false }).setView(DAVAO_CENTER, 13)
 
-            // Create a custom icon for user location
-            const userIcon = L.divIcon({
-              className: "user-location-marker",
-              html: `<div style="background-color: #4285F4; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.3);"></div>`,
-              iconSize: [22, 22],
-              iconAnchor: [11, 11],
-            })
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: "abcd",
+      maxZoom: 19,
+    }).addTo(map)
 
-            // Add new user marker
-            userMarkerRef.current = L.marker([latitude, longitude], { icon: userIcon })
-              .addTo(mapRef.current)
-              .bindPopup("Your location")
-              .openPopup()
+    mapRef.current = map
+    tripLayerRef.current = L.layerGroup().addTo(map)
+    requestLocation()
 
-            // If no location is selected, center on user location
-            if (!selectedLocation) {
-              mapRef.current.setView([latitude, longitude], 15)
-            }
-
-            // If we have an active route, update the nearest point marker
-            if (recommendedRoutes.length > 0) {
-              updateNearestPointMarker(recommendedRoutes[activeRouteIndex])
-            }
-          }
-        },
-        (error: GeolocationPositionError) => {
-          console.error("Error getting location:", error)
-        },
-      )
+    return () => {
+      map.remove()
+      mapRef.current = null
+      tripLayerRef.current = null
     }
-  }
+  }, [requestLocation])
 
-  const updateRoutes = (): void => {
-    if (!mapRef.current || !selectedLocation || !userLocation) return;
-  
-    routeLayersRef.current.forEach((layer) => mapRef.current?.removeLayer(layer));
-    routeLayersRef.current = [];
-  
-    animationLayersRef.current.forEach((layer) => mapRef.current?.removeLayer(layer));
-    animationLayersRef.current = [];
-  
-    animationIntervalsRef.current.forEach((interval) => clearTimeout(interval));
-    animationIntervalsRef.current = [];
-  
-    const scoredRoutes: Route[] = routes.map((route) => ({
-      ...route,
-      distance: scoreRoute(route),  // store score in .distance for reuse
-    })).filter(route => route.distance !== Number.POSITIVE_INFINITY);
-  
-    const sortedRoutes = scoredRoutes.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-  
-    const topRoutes = sortedRoutes.slice(0, 3);
-    setRecommendedRoutes(topRoutes);
-    setActiveRouteIndex(0);
-  
-    if (topRoutes.length > 0) {
-      renderRoute(topRoutes[0]);
-    }
-  };
-  
-  const renderRoute = (route: Route): void => {
-    if (!mapRef.current) return
-
-    // Clear previous routes
-    routeLayersRef.current.forEach((layer) => {
-      mapRef.current?.removeLayer(layer)
-    })
-    routeLayersRef.current = []
-
-    // Clear animation layers
-    animationLayersRef.current.forEach((layer) => {
-      mapRef.current?.removeLayer(layer)
-    })
-    animationLayersRef.current = []
-
-    // Clear animation intervals
-    animationIntervalsRef.current.forEach((interval) => {
-      clearTimeout(interval)
-    })
-    animationIntervalsRef.current = []
-
-    // Add the route to the map
-    const routeLayer = L.geoJSON(route as GeoJSON.Feature, {
-      style: () => ({
-        color: route.properties.color,
-        weight: 7,
-        opacity: 0.9,
-      }),
-      onEachFeature: (feature: GeoJSON.Feature, layer: L.Layer) => {
-        const popupContent = `<b>${route.properties.name}</b><br>Distance to destination: ${(route.distance || 0).toFixed(2)} km`
-        if (layer instanceof L.Path) {
-          layer.bindPopup(popupContent)
-          layer.openPopup()
-        }
-      },
-    }).addTo(mapRef.current)
-
-    routeLayersRef.current.push(routeLayer)
-
-    // Create route animation
-    createRouteAnimation(route)
-
-    // Update nearest point marker if user location is available
-    if (userLocation) {
-      updateNearestPointMarker(route)
-    }
-  }
-
-  const createRouteAnimation = (route: Route): void => {
-    if (!mapRef.current) return
-
-    const coordinates = route.geometry.coordinates
-
-    // Add CSS for arrow animation
-    const styleId = "arrow-animation-style"
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement("style")
-      style.id = styleId
-      style.innerHTML = `
-        @keyframes fadeInOut {
-          0% { opacity: 0; }
-          50% { opacity: 1; }
-          100% { opacity: 0; }
-        }
-      `
-      document.head.appendChild(style)
-    }
-
-    // Create arrow markers at intervals along the route
-    const arrowCount = Math.min(Math.floor(coordinates.length / 15), 15) // Limit number of arrows
-    const step = Math.max(Math.floor(coordinates.length / arrowCount), 1)
-
-    // Create arrow markers but don't add them to the map yet
-    const arrowMarkers: ArrowMarker[] = []
-    for (let i = 0; i < coordinates.length - step; i += step) {
-      const start = coordinates[i]
-      const end = coordinates[i + step]
-
-      // Calculate angle for arrow direction
-      const angle = calculateAngle(start[1], start[0], end[1], end[0])
-
-      const arrowIcon = L.divIcon({
-        className: "route-arrow",
-        html: `<div style="
-          transform: rotate(${angle}deg);
-          width: 0; 
-          height: 0; 
-          border-left: 6px solid transparent;
-          border-right: 6px solid transparent;
-          border-bottom: 12px solid ${route.properties.color};
-          opacity: 0;
-        "></div>`,
-        iconSize: [12, 12],
-        iconAnchor: [6, 6],
-      })
-
-      const arrowMarker = L.marker([start[1], start[0]], { icon: arrowIcon })
-      arrowMarkers.push({
-        marker: arrowMarker,
-        position: i,
-      })
-    }
-
-    // Create animation that shows arrows in sequence
-    let currentArrowIndex = 0
-    const totalArrows = arrowMarkers.length
-    const visibleArrows = 3 // Number of arrows visible at once
-
-    // Function to update visible arrows
-    const updateArrows = (): void => {
-      // Remove all current arrows from map
-      animationLayersRef.current.forEach((layer) => {
-        mapRef.current?.removeLayer(layer)
-      })
-      animationLayersRef.current = []
-
-      // Add the next set of visible arrows
-      for (let i = 0; i < visibleArrows; i++) {
-        const arrowIndex = (currentArrowIndex + i) % totalArrows
-        const arrow = arrowMarkers[arrowIndex]
-        if (mapRef.current) {
-          arrow.marker.addTo(mapRef.current)
-          animationLayersRef.current.push(arrow.marker)
-
-          // Add fade in/out animation
-          const arrowElement = arrow.marker.getElement()
-          if (arrowElement) {
-            const arrowDiv = arrowElement.querySelector("div") as HTMLElement
-            if (arrowDiv) {
-              arrowDiv.style.animation = "fadeInOut 1.5s infinite"
-              arrowDiv.style.animationDelay = `${i * 0.2}s` // Stagger the animations
-            }
-          }
-        }
-      }
-
-      // Move to next position
-      currentArrowIndex = (currentArrowIndex + 1) % totalArrows
-    }
-
-    // Start the animation
-    updateArrows()
-    const animationInterval = setInterval(updateArrows, 300)
-    animationIntervalsRef.current.push(animationInterval)
-  }
-
-  const calculateAngle = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
-    const dLng = lng2 - lng1
-    const y = Math.sin(dLng) * Math.cos(lat2)
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-    const angle = (Math.atan2(y, x) * 180) / Math.PI
-    return angle
-  }
-
-  const updateNearestPointMarker = (route: Route): void => {
-    if (!mapRef.current || !userLocation) return
-
-    // Find nearest point on the route to the user
-    const nearestPoint = findNearestPointOnRoute(userLocation, route)
-    setNearestPointInfo(nearestPoint)
-
-    // Remove previous marker if exists
-    if (nearestPointMarkerRef.current) {
-      mapRef.current.removeLayer(nearestPointMarkerRef.current)
-    }
-
-    // Create a custom icon for the nearest point
-    const nearestPointIcon = L.divIcon({
-      className: "nearest-point-marker",
-      html: `<div style="
-        width: 18px; 
-        height: 18px; 
-        background-color: ${route.properties.color}; 
-        border-radius: 50%;
-        border: 3px solid white;
-        box-shadow: 0 0 5px rgba(0,0,0,0.5);
-        animation: pulse 1.5s infinite alternate;
-      "></div>`,
-      iconSize: [18, 18],
-      iconAnchor: [9, 9],
-    })
-
-    // Add marker for nearest point
-    nearestPointMarkerRef.current = L.marker([nearestPoint.point[0], nearestPoint.point[1]], {
-      icon: nearestPointIcon,
-    })
-      .addTo(mapRef.current)
-      .bindPopup(
-        `<b>Nearest Jeepney Stop</b><br>Go here to ride the ${route.properties.name} jeepney.<br>Distance: ${nearestPoint.distance.toFixed(2)} km from your location.`,
-      )
-
-    // Automatically open the popup
-    nearestPointMarkerRef.current.openPopup()
-  }
-
-  const findNearestPointOnRoute = (point: UserLocation, route: Route): NearestPointInfo => {
-    const coordinates = route.geometry.coordinates
-    let minDistance = Number.POSITIVE_INFINITY
-    let nearestPoint: [number, number] = [0, 0]
-
-    coordinates.forEach((coord: number[]) => {
-      const distance = calculateDistance(
-        point.lat,
-        point.lng,
-        coord[1], // lat
-        coord[0], // lng
-      )
-
-      if (distance < minDistance) {
-        minDistance = distance
-        nearestPoint = [coord[1], coord[0]] // [lat, lng]
-      }
-    })
-
-    return { point: nearestPoint, distance: minDistance }
-  }
+  // Centre on the rider until there is a trip to frame.
+  useEffect(() => {
+    if (!mapRef.current || !userLocation || trips.length > 0) return
+    mapRef.current.setView([userLocation.lat, userLocation.lng], 15)
+  }, [userLocation, trips.length])
 
   useEffect(() => {
-    if (!mapRef.current || !selectedLocation) return
+    setActiveIndex(0)
+  }, [trips])
 
-    // Clear previous search marker
-    mapRef.current.eachLayer((layer) => {
-      if (layer instanceof L.Marker && layer !== userMarkerRef.current && layer !== nearestPointMarkerRef.current) {
-        mapRef.current?.removeLayer(layer)
-      }
-    })
-
-    // Add base tile layer back if it was removed
-    let hasBaseTileLayer = false
-    mapRef.current.eachLayer((layer) => {
-      if (layer instanceof L.TileLayer) {
-        hasBaseTileLayer = true
-      }
-    })
-
-    if (!hasBaseTileLayer) {
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 19,
-      }).addTo(mapRef.current)
-    }
-
-    // Add marker for selected location
-    const marker = L.marker([selectedLocation.lat, selectedLocation.lng])
-      .addTo(mapRef.current)
-      .bindPopup(selectedLocation.name)
-      .openPopup()
-
-    // Pan to selected location
-    mapRef.current.setView([selectedLocation.lat, selectedLocation.lng], 15)
-
-    // Update routes based on new selected location
-    updateRoutes()
-  }, [selectedLocation])
-
-  // Update nearest point when user location changes
   useEffect(() => {
-    if (userLocation && selectedLocation) {
-      updateRoutes()
+    const map = mapRef.current
+    const layer = tripLayerRef.current
+    if (!map || !layer) return
+
+    const trip = trips[activeIndex]
+    if (!trip) {
+      layer.clearLayers()
+      return
     }
-  }, [userLocation])
 
-  // Update displayed route when active route index changes
-  useEffect(() => {
-    if (recommendedRoutes.length > 0 && activeRouteIndex >= 0 && activeRouteIndex < recommendedRoutes.length) {
-      renderRoute(recommendedRoutes[activeRouteIndex])
-    }
-  }, [activeRouteIndex])
-
-  const scoreRoute = (route: Route): number => {
-    if (!userLocation || !selectedLocation) return Number.POSITIVE_INFINITY;
-
-  const coords = route.geometry.coordinates;
-
-  let nearestUserIndex = -1;
-  let nearestDestIndex = -1;
-  let minUserDist = Number.POSITIVE_INFINITY;
-  let minDestDist = Number.POSITIVE_INFINITY;
-
-  // Find nearest points on route for both user and destination
-  coords.forEach((coord, i) => {
-    const distToUser = calculateDistance(userLocation.lat, userLocation.lng, coord[1], coord[0]);
-    const distToDest = calculateDistance(selectedLocation.lat, selectedLocation.lng, coord[1], coord[0]);
-
-    if (distToUser < minUserDist) {
-      minUserDist = distToUser;
-      nearestUserIndex = i;
-    }
-    if (distToDest < minDestDist) {
-      minDestDist = distToDest;
-      nearestDestIndex = i;
-    }
-  });
-
-  if (nearestUserIndex === -1 || nearestDestIndex === -1) return Number.POSITIVE_INFINITY;
-
-  // Check if route direction is valid (boarding point should be before destination)
-  if (nearestUserIndex >= nearestDestIndex) {
-    // If not, try reverse direction by checking if destination is significantly closer to start
-    // This handles routes that might go in different directions
-    const distFromStart = nearestDestIndex;
-    const distFromEnd = coords.length - 1 - nearestDestIndex;
-    
-    // If destination is closer to route start, this route might not be suitable
-    if (distFromStart < distFromEnd && nearestUserIndex > nearestDestIndex) {
-      return Number.POSITIVE_INFINITY;
-    }
-  }
-
-  // Calculate route segment distance between boarding and destination points
-  let routeSegmentDistance = 0;
-  const startIndex = Math.min(nearestUserIndex, nearestDestIndex);
-  const endIndex = Math.max(nearestUserIndex, nearestDestIndex);
-  
-  for (let i = startIndex; i < endIndex; i++) {
-    const c1 = coords[i];
-    const c2 = coords[i + 1];
-    routeSegmentDistance += calculateDistance(c1[1], c1[0], c2[1], c2[0]);
-  }
-
-  // Calculate total route length for normalization
-  let totalRouteLength = 0;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const c1 = coords[i];
-    const c2 = coords[i + 1];
-    totalRouteLength += calculateDistance(c1[1], c1[0], c2[1], c2[0]);
-  }
-
-  // Weighted scoring system
-  const weights = {
-    userToStop: 0.4,      // Distance from user to nearest jeepney stop
-    destToStop: 0.3,      // Distance from destination to nearest jeepney stop  
-    routeLength: 0.3      // Length of route segment (normalized)
-  };
-
-  // Normalize route segment distance (0-1 scale based on total route length)
-  const normalizedRouteDistance = totalRouteLength > 0 ? routeSegmentDistance / totalRouteLength : 0;
-
-  // Calculate weighted score (lower is better)
-  const score = (
-    weights.userToStop * minUserDist +
-    weights.destToStop * minDestDist +
-    weights.routeLength * normalizedRouteDistance * 10 // Scale up route length factor
-  );
-
-  return score;
-  };
-  
-  
-  
-
-  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371 // Radius of the earth in km
-    const dLat = deg2rad(lat2 - lat1)
-    const dLon = deg2rad(lon2 - lon1)
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    const d = R * c // Distance in km
-    return d
-  }
-
-  const deg2rad = (deg: number): number => {
-    return deg * (Math.PI / 180)
-  }
-
-  const handleZoomIn = (): void => {
-    if (mapRef.current) {
-      mapRef.current.zoomIn()
-    }
-  }
-
-  const handleZoomOut = (): void => {
-    if (mapRef.current) {
-      mapRef.current.zoomOut()
-    }
-  }
-
-  const handleLocate = (): void => {
-    getUserLocation()
-  }
-
-  const handleRouteClick = (index: number): void => {
-    setActiveRouteIndex(index)
-  }
+    renderTrip(map, layer, trip, {
+      index: routeIndex,
+      origin: userLocation ?? undefined,
+      destination: selectedLocation
+        ? { lat: selectedLocation.lat, lng: selectedLocation.lng, name: selectedLocation.name }
+        : undefined,
+    })
+  }, [trips, activeIndex, routeIndex, userLocation, selectedLocation])
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainerRef} className="w-full h-full z-0" />
-
-      {userLocation && nearestPointInfo && (
-        <div className="absolute top-4 left-4 transform z-10 w-full max-w-md px-4 mt-16">
-          <Alert className="bg-white border-primary shadow-lg">
-            <InfoIcon className="h-4 w-4 text-primary" />
-            <AlertTitle>How to use this jeepney route</AlertTitle>
-            <AlertDescription className="text-xs mt-1">
-              Go to the marked point on the map ({nearestPointInfo.distance.toFixed(2)} km from your location) to ride
-              the jeepney. The animated arrows show the direction of travel.
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
+    <div className="relative h-full w-full">
+      <div ref={mapContainerRef} className="z-0 h-full w-full" />
 
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
-        <Button variant="secondary" size="icon" onClick={handleZoomIn} className="shadow-md">
+        <Button variant="secondary" size="icon" onClick={() => mapRef.current?.zoomIn()} className="shadow-md">
           <ZoomIn className="h-4 w-4" />
         </Button>
-        <Button variant="secondary" size="icon" onClick={handleZoomOut} className="shadow-md">
+        <Button variant="secondary" size="icon" onClick={() => mapRef.current?.zoomOut()} className="shadow-md">
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <Button variant="secondary" size="icon" onClick={handleLocate} className="shadow-md">
+        <Button variant="secondary" size="icon" onClick={requestLocation} className="shadow-md">
           <Locate className="h-4 w-4" />
         </Button>
       </div>
 
-      {recommendedRoutes.length > 0 && (
-        <div className="absolute bottom-4 left-4 z-10 bg-white p-3 rounded-md shadow-md max-w-xs">
-          <h3 className="font-medium text-sm mb-2">Routes Near Destination:</h3>
-          <ul className="text-xs space-y-2">
-            {recommendedRoutes.map((route, index) => (
-              <li
-                key={index}
-                className={`flex items-center gap-2 p-2 rounded-md cursor-pointer ${activeRouteIndex === index ? "bg-gray-100" : "hover:bg-gray-50"}`}
-                onClick={() => handleRouteClick(index)}
-              >
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: route.properties.color }} />
-                <span className="flex-1">{route.properties.name}</span>
-                <span className="text-gray-500">{(route.distance || 0).toFixed(2)} km</span>
-                {index === 0 && (
-                  <Badge variant="outline" className="ml-1 text-[10px] py-0 h-5">
-                    Closest
-                  </Badge>
-                )}
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs mt-3 text-gray-600">Routes are sorted by distance to your search location.</p>
+      {locationError && !userLocation && (
+        <div className="absolute left-4 top-20 z-10 max-w-xs rounded-md bg-white p-3 text-xs shadow-md">
+          <p className="font-medium">Cannot find your location</p>
+          <p className="mt-1 text-gray-600">{locationError}</p>
+          <Button variant="secondary" size="sm" className="mt-2 h-7 text-xs" onClick={requestLocation}>
+            Try again
+          </Button>
+        </div>
+      )}
+
+      {selectedLocation && (
+        <div className="absolute bottom-4 left-4 z-10">
+          <TripPanel
+            trips={trips}
+            activeIndex={activeIndex}
+            onSelect={setActiveIndex}
+            fare={fare}
+            onFareChange={setFare}
+            onFareReset={resetFare}
+            fareIsDefault={fareIsDefault}
+            destinationName={selectedLocation.name}
+            awaitingLocation={!userLocation && !locationError}
+          />
         </div>
       )}
     </div>

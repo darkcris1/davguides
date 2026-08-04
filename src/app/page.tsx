@@ -8,6 +8,13 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search } from "lucide-react"
 import { routes } from "@/lib/routes"
+import type { Location, Route } from "@/commons/models/maps"
+
+interface NominatimResult {
+  lat: string
+  lon: string
+  display_name: string
+}
 
 // Dynamically import the Map component to avoid SSR issues with Leaflet
 const MapComponent = dynamic(() => import("@/components/map-component"), {
@@ -19,8 +26,8 @@ const MapComponent = dynamic(() => import("@/components/map-component"), {
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("")
-  const [searchResults, setSearchResults] = useState<any[]>([])
-  const [selectedLocation, setSelectedLocation] = useState<any>(null)
+  const [searchResults, setSearchResults] = useState<NominatimResult[]>([])
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null)
   const [isSearching, setIsSearching] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -37,7 +44,9 @@ export default function Home() {
       const data = await response.json()
 
       // Filter results to ensure they're in Davao City
-      const davaoResults = data.filter((result: any) => result.display_name.toLowerCase().includes("davao city"))
+      const davaoResults = (data as NominatimResult[]).filter((result) =>
+        result.display_name.toLowerCase().includes("davao city"),
+      )
 
       setSearchResults(davaoResults)
 
@@ -61,7 +70,7 @@ export default function Home() {
     }
   }
 
-  const handleResultClick = (result: any) => {
+  const handleResultClick = (result: NominatimResult) => {
     setSelectedLocation({
       lat: Number.parseFloat(result.lat),
       lng: Number.parseFloat(result.lon),
@@ -115,7 +124,7 @@ export default function Home() {
         </div>
       </div>
 
-      <MapComponent selectedLocation={selectedLocation} routes={routes} />
+      <MapComponent selectedLocation={selectedLocation} routes={routes as Route[]} />
     </main>
   )
 }
