@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import SearchBox from "@/components/search-box"
@@ -22,19 +22,21 @@ const MapComponent = dynamic(() => import("@/components/map-component"), {
 const MOBILE_QUERY = "(max-width: 767px)"
 const SWIPE_PX = 30
 
-// Tracks how much of the map the floating header and sheet cover on phones.
-function useMobileInsets(header: React.RefObject<HTMLElement | null>, sheet: React.RefObject<HTMLElement | null>) {
-  const [insets, setInsets] = useState<MapInsets>({ top: 0, bottom: 0 })
+type ElementRef = React.RefObject<HTMLElement | null>
 
-  // Reads layout now, so a fit in the same commit as a sheet resize sees the new height.
-  const readInsets = useCallback((): MapInsets => {
-    if (!window.matchMedia(MOBILE_QUERY).matches) return { top: 0, bottom: 0 }
-    return { top: header.current?.offsetHeight ?? 0, bottom: sheet.current?.offsetHeight ?? 0 }
-  }, [header, sheet])
+// Reads layout now, so a fit in the same commit as a sheet resize sees the new height.
+function measureInsets(header: ElementRef, sheet: ElementRef): MapInsets {
+  if (!window.matchMedia(MOBILE_QUERY).matches) return { top: 0, bottom: 0 }
+  return { top: header.current?.offsetHeight ?? 0, bottom: sheet.current?.offsetHeight ?? 0 }
+}
+
+// Tracks how much of the map the floating header and sheet cover on phones.
+function useMobileInsets(header: ElementRef, sheet: ElementRef) {
+  const [insets, setInsets] = useState<MapInsets>({ top: 0, bottom: 0 })
 
   useEffect(() => {
     const media = window.matchMedia(MOBILE_QUERY)
-    const measure = () => setInsets(readInsets())
+    const measure = () => setInsets(measureInsets(header, sheet))
     const observer = new ResizeObserver(measure)
     if (header.current) observer.observe(header.current)
     if (sheet.current) observer.observe(sheet.current)
@@ -44,9 +46,9 @@ function useMobileInsets(header: React.RefObject<HTMLElement | null>, sheet: Rea
       observer.disconnect()
       media.removeEventListener("change", measure)
     }
-  }, [header, sheet, readInsets])
+  }, [header, sheet])
 
-  return { insets, readInsets }
+  return { insets, readInsets: () => measureInsets(header, sheet) }
 }
 
 export default function AppShell() {
@@ -110,7 +112,7 @@ export default function AppShell() {
           <h1 className="sr-only">DavGuides: find which jeepney to ride in Davao City</h1>
           <div className="pointer-events-auto flex items-start gap-2 md:flex-col md:gap-4">
             <div className="flex shrink-0 items-center gap-3">
-              <Image src="/logo-mark.svg" alt="" width={48} height={48} priority className="size-12 rounded-[14px] shadow-lg md:size-10 md:shadow-none" />
+              <Image src="/logo-mark.svg" alt="" width={48} height={48} preload className="size-12 rounded-[14px] shadow-lg md:size-10 md:shadow-none" />
               <span className="hidden font-signboard text-[32px] font-bold leading-none tracking-wide md:block" aria-hidden>
                 <span className="text-[var(--dg-navy)]">DAV</span>
                 <span className="text-[var(--dg-ink)]">GUIDES</span>

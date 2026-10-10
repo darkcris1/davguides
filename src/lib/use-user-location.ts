@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 import type { UserLocation } from "@/commons/models/maps"
 import { haversineKm } from "./geo"
 
@@ -25,21 +25,21 @@ function describeError(error: GeolocationPositionError): string {
   return "Your device couldn't get a location fix. Turn on GPS or move near a window, then tap Locate."
 }
 
+const POSITION_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
+
+const UNSUPPORTED_ERROR = "This browser can't share your location."
+const noSubscribe = () => () => {}
+
 export function useUserLocation(): UserLocationState {
   const [location, setLocation] = useState<UserLocation | null>(null)
   const [status, setStatus] = useState<LocationStatus>("pending")
   const [error, setError] = useState<string | null>(null)
   const [accuracyM, setAccuracyM] = useState<number | null>(null)
   const locationRef = useRef<UserLocation | null>(null)
+  const supported = useSyncExternalStore(noSubscribe, () => typeof navigator.geolocation?.getCurrentPosition === "function", () => true)
 
-  const request = useCallback(() => {
-    if (!navigator.geolocation) {
-      setStatus("error")
-      setError("This browser can't share your location.")
-      return
-    }
-    if (!locationRef.current) setStatus("pending")
-
+  // Only sets state from the geolocation callbacks, never synchronously.
+  const locate = useCallback(() => {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         const previous = locationRef.current
@@ -58,13 +58,20 @@ export function useUserLocation(): UserLocationState {
         setError(describeError(err))
         setStatus("error")
       },
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 },
+      POSITION_OPTIONS,
     )
   }, [])
 
-  useEffect(() => {
-    request()
-  }, [request])
+  const request = useCallback(() => {
+    if (!supported) return
+    if (!locationRef.current) setStatus("pending")
+    locate()
+  }, [supported, locate])
 
+  useEffect(() => {
+    if (supported) locate()
+  }, [supported, locate])
+
+  if (!supported) return { location: null, status: "error", error: UNSUPPORTED_ERROR, accuracyM: null, request }
   return { location, status, error, accuracyM, request }
 }

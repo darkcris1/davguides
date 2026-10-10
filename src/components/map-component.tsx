@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useEffectEvent, useRef } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import "maplibre-gl/dist/maplibre-gl.css"
@@ -53,8 +53,6 @@ export default function MapComponent({
   const mapRef = useRef<L.Map | null>(null)
   const tripLayerRef = useRef<L.LayerGroup | null>(null)
   const endpointLayerRef = useRef<L.LayerGroup | null>(null)
-  const readInsetsRef = useRef(readInsets)
-  readInsetsRef.current = readInsets
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -79,15 +77,15 @@ export default function MapComponent({
     }
   }, [])
 
-  const fit = (bounds: L.LatLngBounds) => {
-    const { top, bottom } = readInsetsRef.current()
+  const fit = useEffectEvent((bounds: L.LatLngBounds) => {
+    const { top, bottom } = readInsets()
     mapRef.current?.fitBounds(bounds, {
       animate: !prefersReducedMotion(),
       paddingTopLeft: [24, top + 24],
       paddingBottomRight: [24, bottom + 24],
       maxZoom: 17,
     })
-  }
+  })
 
   useEffect(() => {
     if (endpointLayerRef.current) renderEndpoints(endpointLayerRef.current, origin, destination)

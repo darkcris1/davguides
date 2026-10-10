@@ -5,7 +5,7 @@ Guide for coding agents working in this repo. For background on the domain and o
 ## Stack
 
 - **App**
-  - Next.js 15 (App Router, Turbopack in dev), React 19, TypeScript in strict mode.
+  - Next.js 16 (App Router, Turbopack), React 19.3, TypeScript in strict mode.
   - Tailwind CSS v4: tokens live in `src/app/globals.css` under `@theme inline`.
   - `lucide-react` for icons.
 - **Map**
@@ -92,3 +92,13 @@ There is no e2e suite. To check a change:
 3. Grant or fake geolocation: Chrome DevTools > Sensors, set to about `7.0735, 125.6118`.
 4. Search "SM Lanang", pick a result, and check the route, arrows, sheet and fare.
 5. Deny location and confirm the "location needed" state appears.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useMemo, useState } from "react"
+import { useId, useMemo, useState } from "react"
 import { ChevronDown, LocateFixed, Settings2, TriangleAlert } from "lucide-react"
 import { CONTEXT_COLOR, TRICYCLE_COLOR, jeepneyColor } from "@/lib/leg-colors"
 import { formatDistance, formatDuration } from "@/lib/geo"
@@ -200,12 +200,14 @@ function FareField({
   onCommit: (value: number) => void
 }) {
   const [text, setText] = useState(String(value))
+  const [syncedValue, setSyncedValue] = useState(value)
   const id = useId()
 
   // Follow outside changes such as Reset, but leave a half-typed value alone.
-  useEffect(() => {
-    setText((current) => (Number(current) === value && current !== "" ? current : String(value)))
-  }, [value])
+  if (syncedValue !== value) {
+    setSyncedValue(value)
+    if (Number(text) !== value || text === "") setText(String(value))
+  }
 
   return (
     <div className="flex items-center justify-between gap-3">
