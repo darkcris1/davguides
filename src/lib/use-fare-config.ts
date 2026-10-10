@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { DEFAULT_FARE, type FareConfig } from "./transport-config"
 
 const STORAGE_KEY = "davguides.fare"
@@ -18,53 +18,51 @@ function sanitize(raw: unknown): FareConfig {
   // A zero base distance or rounding step would make every fare nonsense.
   if (merged.jeepneyBaseKm <= 0) merged.jeepneyBaseKm = DEFAULT_FARE.jeepneyBaseKm
   if (merged.roundToPhp <= 0) merged.roundToPhp = DEFAULT_FARE.roundToPhp
+  merged.discountPct = Math.min(100, merged.discountPct)
 
   return merged
 }
 
-/**
- * The rider's fare settings, persisted locally.
- *
- * Fares are display-only — they never reach the trip optimizer — so editing them
- * re-prices the existing plans instead of triggering a new search.
- */
+// Fares are display-only, so editing them re-prices plans without a new search.
 export function useFareConfig() {
   const [fare, setFareState] = useState<FareConfig>(DEFAULT_FARE)
+  // Only persist after the rider edits, so a fresh visit never writes defaults.
+  const dirtyRef = useRef(false)
 
-  // Read on mount rather than in the initializer, so the server and the first
-  // client render agree.
+  // Read on mount so the server and first client render agree.
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY)
       if (stored) setFareState(sanitize(JSON.parse(stored)))
     } catch {
-      // Corrupt or unavailable storage just means defaults.
+      // Corrupt or blocked storage just means defaults.
     }
   }, [])
+
+  useEffect(() => {
+    if (!dirtyRef.current) return
+    try {
+      // Store only overrides, so future default fares still reach the rider.
+      const overrides = Object.fromEntries(Object.entries(fare).filter(([key, value]) => DEFAULT_FARE[key as keyof FareConfig] !== value))
+      if (Object.keys(overrides).length === 0) window.localStorage.removeItem(STORAGE_KEY)
+      else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides))
+    } catch {
+      // Non-fatal: the setting won't survive a reload.
+    }
+  }, [fare])
 
   const setFare = useCallback((next: FareConfig | ((previous: FareConfig) => FareConfig)) => {
-    setFareState((previous) => {
-      const resolved = sanitize(typeof next === "function" ? next(previous) : next)
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(resolved))
-      } catch {
-        // Non-fatal: the setting just will not survive a reload.
-      }
-      return resolved
-    })
+    dirtyRef.current = true
+    setFareState((previous) => sanitize(typeof next === "function" ? next(previous) : next))
   }, [])
 
+  // Resets the fare table but keeps the rider's discount choice.
   const reset = useCallback(() => {
-    try {
-      window.localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // Ignored, same reason as above.
-    }
-    setFareState(DEFAULT_FARE)
-  }, [])
+    setFare((previous) => ({ ...DEFAULT_FARE, discountPct: previous.discountPct }))
+  }, [setFare])
 
   const isDefault = (Object.keys(DEFAULT_FARE) as (keyof FareConfig)[]).every(
-    (key) => fare[key] === DEFAULT_FARE[key],
+    (key) => key === "discountPct" || fare[key] === DEFAULT_FARE[key],
   )
 
   return { fare, setFare, reset, isDefault }

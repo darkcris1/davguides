@@ -9,11 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@radix-ui/react-slot": "^1.1.2",
-    "class-variance-authority": "^0.7.1",
+    "@maplibre/maplibre-gl-leaflet": "^0.1.4",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.483.0",
+    "maplibre-gl": "^5.24.0",
     "next": "15.2.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -21,11 +21,14 @@
     "tw-animate-css": "^1.2.4"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "@tailwindcss/postcss": "^4",
     "@types/leaflet": "^1.9.19",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.2.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

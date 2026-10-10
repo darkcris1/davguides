@@ -25,8 +25,3 @@ export interface UserLocation {
   lat: number
   lng: number
 }
-
-export interface MapComponentProps {
-  selectedLocation: Location | null
-  routes: Route[]
-}

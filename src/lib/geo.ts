@@ -1,11 +1,4 @@
-/**
- * Pure geometry helpers. No React, no Leaflet, no route knowledge.
- *
- * Two coordinate conventions are in play and mixing them is the classic bug here:
- *  - the raw GeoJSON in routes.ts is [lng, lat]
- *  - everything Leaflet and everything in this app's own types is [lat, lng]
- * Functions below always name their parameters explicitly to keep it honest.
- */
+// Pure geometry helpers; routes.ts is [lng, lat], everything else is [lat, lng].
 
 export const EARTH_RADIUS_KM = 6371
 
@@ -51,11 +44,7 @@ export function bearingDeg(aLat: number, aLng: number, bLat: number, bLng: numbe
   return (toDeg(Math.atan2(y, x)) + 360) % 360
 }
 
-/**
- * Local equirectangular frame in kilometres, anchored at a reference latitude.
- * Over Davao's ~25x32 km extent the distortion is well under 0.5%, and it lets the
- * inner projection loop run without any trig at all.
- */
+// Flat km frame at a reference latitude; under 0.5% error across Davao and no trig per point.
 export interface PlanarFrame {
   kx: number
   ky: number
@@ -77,13 +66,7 @@ export interface SegmentProjection {
   distKm: number
 }
 
-/**
- * Perpendicular projection of a point onto a segment, clamped to the segment.
- *
- * This is what makes boarding points land on the road. Picking the nearest *vertex*
- * instead is off by up to half a segment length — 376 m worst case on the dense
- * Davao loops, and kilometres on the sparse Panabo polyline.
- */
+// Projects onto the segment, not the nearest vertex, so boarding points land on the road.
 export function projectPointOnSegment(
   frame: PlanarFrame,
   pLat: number,
@@ -118,15 +101,6 @@ export function projectPointOnSegment(
   }
 }
 
-/** Total length of a [lng, lat][] polyline in km. */
-export function polylineLengthKm(coords: number[][]): number {
-  let total = 0
-  for (let i = 0; i < coords.length - 1; i++) {
-    total += haversineKm(coords[i][1], coords[i][0], coords[i + 1][1], coords[i + 1][0])
-  }
-  return total
-}
-
 export type BBox = [minLng: number, minLat: number, maxLng: number, maxLat: number]
 
 export function bboxOf(coords: number[][]): BBox {
@@ -155,11 +129,6 @@ export function bboxContains(bbox: BBox, lng: number, lat: number, padDeg: numbe
 /** Degrees of latitude covering `km`. Used to turn a search radius into bbox padding. */
 export function kmToDegLat(km: number): number {
   return km / KM_PER_DEG_LAT
-}
-
-/** Degrees of longitude covering `km` at a given latitude. */
-export function kmToDegLng(km: number, atLat: number): number {
-  return km / (KM_PER_DEG_LNG_EQUATOR * Math.cos(toRad(atLat)))
 }
 
 /** Human-facing distance: "240 m" under a km, "3.6 km" above. */

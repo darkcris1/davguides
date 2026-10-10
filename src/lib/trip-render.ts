@@ -1,37 +1,20 @@
-/**
- * Draws a TripPlan onto a Leaflet map.
- *
- * Only the ridden arc of each route is drawn solid; the rest of the loop is faint
- * context. That is what actually communicates direction — a fully drawn ring tells
- * the rider nothing about which way the jeep goes.
- */
+// Draws a TripPlan onto Leaflet layers; only the ridden arc is solid, so direction reads at a glance.
 
 import L from "leaflet"
 import type { TripLeg, TripPlan } from "./route-engine"
 import { fullPath, type RouteIndex } from "./route-index"
 import { THRESHOLDS } from "./transport-config"
 import { bearingDeg, formatDistance, formatDuration, haversineKm } from "./geo"
+import { escapeHtml } from "./utils"
+import { CONTEXT_COLOR, TRICYCLE_COLOR, WALK_COLOR, jeepneyColor } from "./leg-colors"
 
-/**
- * Per-leg colours, independent of routes.ts.
- *
- * The dataset reuses just 8 hex values across 53 routes — Toril, Calinan and
- * Bangkal are all #ff0000 — so route colour cannot distinguish one leg from
- * the next.
- */
-export const LEG_PALETTE = ["#2563eb", "#db2777", "#16a34a", "#ea580c"] as const
-
-const WALK_COLOR = "#64748b"
-const TRICYCLE_COLOR = "#d97706"
-const CONTEXT_COLOR = "#94a3b8"
+const ORIGIN_COLOR = "#4285F4"
+const DESTINATION_COLOR = "#dc2626"
 
 export interface RenderTripOptions {
   index: RouteIndex
   /** Draw the rest of each route's loop faintly behind the ridden arc. */
   showRouteContext?: boolean
-  fitBounds?: boolean
-  origin?: { lat: number; lng: number }
-  destination?: { lat: number; lng: number; name?: string }
 }
 
 function dotIcon(color: string, size: number, ring = 3): L.DivIcon {
@@ -47,7 +30,7 @@ function dotIcon(color: string, size: number, ring = 3): L.DivIcon {
 function labelIcon(color: string, label: string): L.DivIcon {
   return L.divIcon({
     className: "dg-marker",
-    html: `<div style="min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:${color};color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font:600 12px/18px system-ui,sans-serif;text-align:center">${label}</div>`,
+    html: `<div style="min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:${color};color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font:600 12px/18px system-ui,sans-serif;text-align:center">${escapeHtml(label)}</div>`,
     iconSize: [26, 26],
     iconAnchor: [13, 13],
   })
@@ -62,13 +45,7 @@ function pinIcon(color: string): L.DivIcon {
   })
 }
 
-/**
- * Direction arrows spaced by actual distance, not by vertex count.
- *
- * Vertex density varies more than tenfold across this dataset (107 to 1423
- * vertices), so spacing arrows every Nth vertex puts them metres apart on one
- * route and kilometres apart on another.
- */
+// Arrows are spaced by distance, since vertex density varies tenfold between routes.
 export function addDirectionArrows(
   group: L.LayerGroup,
   path: [number, number][],
@@ -81,15 +58,11 @@ export function addDirectionArrows(
   for (let i = 1; i < path.length; i++) {
     const [aLat, aLng] = path[i - 1]
     const [bLat, bLng] = path[i]
-    const segKm = haversineKm(aLat, aLng, bLat, bLng)
-    sinceLastKm += segKm
+    sinceLastKm += haversineKm(aLat, aLng, bLat, bLng)
     if (sinceLastKm < everyKm) continue
     sinceLastKm = 0
 
-    // True compass bearing. Taking atan2(dLat, dLng) directly would both swap the
-    // axes and ignore that a degree of longitude is shorter than one of latitude.
     const heading = bearingDeg(aLat, aLng, bLat, bLng)
-
     const icon = L.divIcon({
       className: "dg-arrow",
       html: `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid ${color};transform:rotate(${heading}deg);filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))"></div>`,
@@ -97,66 +70,56 @@ export function addDirectionArrows(
       iconAnchor: [5, 5],
     })
 
-    group.addLayer(L.marker([bLat, bLng], { icon, interactive: false }))
+    group.addLayer(L.marker([bLat, bLng], { icon, interactive: false, keyboard: false }))
   }
 }
 
 function legTooltip(leg: TripLeg): string {
   const distance = formatDistance(leg.distanceKm)
   if (leg.mode === "jeepney") {
-    return `<strong>${leg.routeName}</strong><br>${distance} · ${formatDuration(leg.durationMin)}`
+    return `<strong>${escapeHtml(leg.routeName ?? "")}</strong><br>${distance} · ${formatDuration(leg.durationMin)}`
   }
   const walk = leg.walkMin != null ? `Walk ${formatDuration(leg.walkMin)}` : ""
   const trike = leg.showTricycleOption && leg.tricycleMin != null ? ` · or tricycle ${formatDuration(leg.tricycleMin)}` : ""
   return `<strong>${distance}</strong><br>${walk}${trike}`
 }
 
-export function renderTrip(
-  map: L.Map,
-  group: L.LayerGroup,
-  trip: TripPlan,
-  options: RenderTripOptions,
-): void {
+// Draws the trip into `group` and returns the bounds it covers.
+export function renderTrip(group: L.LayerGroup, trip: TripPlan, options: RenderTripOptions): L.LatLngBounds {
   group.clearLayers()
 
   const bounds = L.latLngBounds([])
   let jeepneyOrdinal = 0
 
-  // Faint full loops first, so ridden arcs and markers draw on top of them.
+  // Faint full loops go first so ridden arcs and markers sit on top.
   if (options.showRouteContext !== false) {
     for (const leg of trip.legs) {
       if (leg.mode !== "jeepney" || leg.routeIndex == null) continue
       const entry = options.index.entries[leg.routeIndex]
       if (!entry) continue
-      group.addLayer(
-        L.polyline(fullPath(entry), {
-          color: CONTEXT_COLOR,
-          weight: 3,
-          opacity: 0.25,
-          interactive: false,
-        }),
-      )
+      group.addLayer(L.polyline(fullPath(entry), { color: CONTEXT_COLOR, weight: 3, opacity: 0.25, interactive: false }))
     }
   }
 
   for (const leg of trip.legs) {
     if (leg.mode === "jeepney") {
-      const color = LEG_PALETTE[jeepneyOrdinal % LEG_PALETTE.length]
+      const color = jeepneyColor(jeepneyOrdinal)
+      const name = escapeHtml(leg.routeName ?? "")
       const line = L.polyline(leg.path, { color, weight: 6, opacity: 0.9 })
       line.bindTooltip(legTooltip(leg), { sticky: true })
       group.addLayer(line)
       addDirectionArrows(group, leg.path, color)
 
       group.addLayer(
-        L.marker(leg.from, { icon: labelIcon(color, String(jeepneyOrdinal + 1)) }).bindPopup(
-          `<strong>Board the ${leg.routeName}</strong><br>Ride ${formatDistance(leg.distanceKm)}${
+        L.marker(leg.from, { icon: labelIcon(color, String(jeepneyOrdinal + 1)), title: `Board the ${leg.routeName}` }).bindPopup(
+          `<strong>Board the ${name}</strong><br>Ride ${formatDistance(leg.distanceKm)}${
             (leg.terminalsCrossed ?? 0) > 0 ? "<br><em>Passes a terminal — you may need to re-board.</em>" : ""
           }`,
         ),
       )
       group.addLayer(
-        L.marker(leg.to, { icon: dotIcon(color, 10, 3) }).bindPopup(
-          `<strong>Get off here</strong><br>${leg.routeName}`,
+        L.marker(leg.to, { icon: dotIcon(color, 10, 3), title: `Get off the ${leg.routeName}` }).bindPopup(
+          `<strong>Get off here</strong><br>${name}`,
         ),
       )
 
@@ -166,9 +129,8 @@ export function renderTrip(
     }
 
     const isTricycle = leg.mode === "tricycle"
-    const color = isTricycle ? TRICYCLE_COLOR : WALK_COLOR
     const line = L.polyline(leg.path, {
-      color,
+      color: isTricycle ? TRICYCLE_COLOR : WALK_COLOR,
       weight: isTricycle ? 4 : 3,
       opacity: 0.85,
       dashArray: isTricycle ? "10 6" : "4 6",
@@ -178,35 +140,46 @@ export function renderTrip(
     leg.path.forEach((p) => bounds.extend(p))
   }
 
-  // Transfer markers sit between two jeepney legs.
-  for (let i = 1; i < trip.legs.length - 1; i++) {
-    const previous = trip.legs[i - 1]
-    const next = trip.legs[i + 1]
-    if (previous.mode !== "jeepney" || next.mode !== "jeepney") continue
+  // Transfers sit between two jeepney legs, with or without a short gap leg between them.
+  for (let i = 1; i < trip.legs.length; i++) {
+    const next = trip.legs[i]
+    if (next.mode !== "jeepney") continue
+    const gap = trip.legs[i - 1].mode === "jeepney" ? null : trip.legs[i - 1]
+    const previous = gap ? trip.legs[i - 2] : trip.legs[i - 1]
+    if (previous?.mode !== "jeepney") continue
+
+    const at = gap ? gap.to : next.from
+    const walk = gap ? `${formatDistance(gap.distanceKm)} to the ` : "Change to the "
     group.addLayer(
-      L.marker(trip.legs[i].to, { icon: labelIcon("#0f172a", "⇄") }).bindPopup(
-        `<strong>Transfer</strong><br>${formatDistance(trip.legs[i].distanceKm)} to the ${next.routeName}`,
+      L.marker(at, { icon: labelIcon("#0f172a", "⇄"), title: "Transfer" }).bindPopup(
+        `<strong>Transfer</strong><br>${walk}${escapeHtml(next.routeName ?? "")}`,
       ),
     )
   }
 
-  if (options.origin) {
-    const point: [number, number] = [options.origin.lat, options.origin.lng]
-    group.addLayer(L.marker(point, { icon: dotIcon("#4285F4", 12, 3) }).bindPopup("You are here"))
-    bounds.extend(point)
+  return bounds
+}
+
+// Rider and destination markers live apart from the trip so they show even without a route.
+export function renderEndpoints(
+  group: L.LayerGroup,
+  origin: { lat: number; lng: number } | null,
+  destination: { lat: number; lng: number; name?: string } | null,
+): void {
+  group.clearLayers()
+
+  if (origin) {
+    group.addLayer(
+      L.marker([origin.lat, origin.lng], { icon: dotIcon(ORIGIN_COLOR, 12, 3), title: "You are here" }).bindPopup("You are here"),
+    )
   }
 
-  if (options.destination) {
-    const point: [number, number] = [options.destination.lat, options.destination.lng]
+  if (destination) {
+    const name = destination.name ? `<br>${escapeHtml(destination.name)}` : ""
     group.addLayer(
-      L.marker(point, { icon: pinIcon("#dc2626") }).bindPopup(
-        `<strong>Destination</strong>${options.destination.name ? `<br>${options.destination.name}` : ""}`,
+      L.marker([destination.lat, destination.lng], { icon: pinIcon(DESTINATION_COLOR), title: "Destination" }).bindPopup(
+        `<strong>Destination</strong>${name}`,
       ),
     )
-    bounds.extend(point)
-  }
-
-  if (options.fitBounds !== false && bounds.isValid()) {
-    map.fitBounds(bounds.pad(0.12))
   }
 }

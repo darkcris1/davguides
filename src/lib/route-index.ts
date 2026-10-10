@@ -1,15 +1,8 @@
-/**
- * Precomputed geometry for every jeepney route: cumulative arc lengths, bounding
- * boxes, and a coarse spatial grid. Built once per `routes` array and cached in a
- * module-level WeakMap so it survives component remounts and Fast Refresh.
- *
- * The cumulative-arc array is what makes the planner cheap: distance between any
- * two points along a route becomes one subtraction instead of a loop over vertices.
- */
+// Precomputed route geometry, cached per routes array so it survives remounts.
 
 import type { Route } from "@/commons/models/maps"
 import { THRESHOLDS } from "./transport-config"
-import { bboxOf, haversineKm, kmToDegLat, kmToDegLng, planarFrame, type BBox } from "./geo"
+import { bboxOf, haversineKm, planarFrame, type BBox } from "./geo"
 
 export interface RouteIndexEntry {
   routeIndex: number
@@ -20,20 +13,9 @@ export interface RouteIndexEntry {
   /** cum[i] = km travelled from vertex 0 to vertex i. Same length as coords. */
   cum: Float64Array
   totalKm: number
-  /**
-   * True when the last vertex closes back onto the first. 52 of 53 Davao routes
-   * are rings: the outbound and return legs are one continuous LineString, so
-   * increasing vertex index is the only record of travel direction.
-   */
+  /** Last vertex closes onto the first; vertex order is then the only record of direction. */
   isLoop: boolean
-  /**
-   * Arc position of the far terminus on an out-and-back ring, or null when the
-   * route is a true circuit (or not a ring at all).
-   *
-   * An out-and-back ring has two terminals, not one: arc 0 (which is also
-   * arc totalKm) and this point. Riding across either means sitting through a
-   * layover and usually being put off the jeep, so both must cost the same.
-   */
+  /** Far terminus of an out-and-back ring, or null for a true circuit. */
   turnaroundArcKm: number | null
   bbox: BBox
   chunkCount: number
@@ -53,48 +35,10 @@ export interface TransferPoint {
   lng: number
 }
 
-/** One occupied grid cell for one route, with its cell coordinates already parsed. */
-export interface RouteCell {
-  cy: number
-  cx: number
-  vertices: number[]
-}
-
 export interface RouteIndex {
   entries: RouteIndexEntry[]
-  cellSizeDeg: number
-  /** cellKey -> routeIndex -> vertex indices falling in that cell. */
-  grid: Map<string, Map<number, number[]>>
-  /**
-   * routeIndex -> only the cells that route actually occupies.
-   *
-   * Transfer search needs to walk one route's cells, not all of them. Without this
-   * every route pair rescanned the whole grid and re-parsed each cell key, which
-   * dominated the cost of the first search that needed a transfer.
-   */
-  cellsByRoute: Map<number, RouteCell[]>
-  /** Lazily filled by findTransferPoints. Keyed "a_b". */
+  /** Lazily filled by findTransferPoints. */
   transferCache: Map<string, TransferPoint[]>
-}
-
-export function cellKey(lat: number, lng: number, cellSizeDeg: number): string {
-  return `${Math.floor(lat / cellSizeDeg)}:${Math.floor(lng / cellSizeDeg)}`
-}
-
-/** Every grid cell that could hold a point within `radiusKm` of (lat, lng). */
-export function cellsWithin(lat: number, lng: number, radiusKm: number, cellSizeDeg: number): string[] {
-  const latSpan = Math.ceil(kmToDegLat(radiusKm) / cellSizeDeg)
-  const lngSpan = Math.ceil(kmToDegLng(radiusKm, lat) / cellSizeDeg)
-  const baseLat = Math.floor(lat / cellSizeDeg)
-  const baseLng = Math.floor(lng / cellSizeDeg)
-
-  const keys: string[] = []
-  for (let dy = -latSpan; dy <= latSpan; dy++) {
-    for (let dx = -lngSpan; dx <= lngSpan; dx++) {
-      keys.push(`${baseLat + dy}:${baseLng + dx}`)
-    }
-  }
-  return keys
 }
 
 function buildEntry(route: Route, routeIndex: number): RouteIndexEntry {
@@ -151,30 +95,12 @@ function buildEntry(route: Route, routeIndex: number): RouteIndexEntry {
   }
 }
 
-/**
- * How close the return half must pass to count as retracing the outbound half, km.
- *
- * Deliberately loose. These routes usually come back on a *parallel street*, not
- * the same one — the two legs sit a median 160-645 m apart — so testing for the
- * identical road would miss most genuine out-and-back rings. The question here is
- * "does this route double back through the same area", not "same kerb".
- */
+// Loose on purpose: return legs usually run on a parallel street 160-645 m away.
 const RETRACE_TOLERANCE_KM = 0.4
 /** Stride through the return half; ~240 m of arc, well inside the tolerance. */
 const RETRACE_STRIDE = 8
 
-/**
- * Locate the far terminus of an out-and-back ring.
- *
- * The candidate is the vertex furthest from the seam. It only counts as a
- * turnaround if the route genuinely doubles back — sampled points on the outbound
- * half must have the return half passing close by. A true circuit (a ring that
- * never retraces, like Route 4 or Route 11 here) has no turnaround, and pretending
- * otherwise would penalize perfectly ordinary rides across it.
- *
- * Runs in a local planar frame so this stays a few milliseconds across all 33k
- * vertices; exact distance is irrelevant when the question is "same street or not".
- */
+// Far terminus of an out-and-back ring; null when the ring never doubles back.
 function detectTurnaroundArcKm(entry: RouteIndexEntry): number | null {
   const { coords, cum } = entry
   const n = coords.length
@@ -226,41 +152,11 @@ function detectTurnaroundArcKm(entry: RouteIndexEntry): number | null {
 }
 
 export function buildRouteIndex(routes: Route[]): RouteIndex {
-  const cellSizeDeg = THRESHOLDS.GRID_CELL_DEG
   const entries = routes.map((route, i) => buildEntry(route, i))
-  const grid = new Map<string, Map<number, number[]>>()
-
-  for (const entry of entries) {
-    for (let i = 0; i < entry.coords.length; i++) {
-      const key = cellKey(entry.coords[i][1], entry.coords[i][0], cellSizeDeg)
-      let byRoute = grid.get(key)
-      if (!byRoute) {
-        byRoute = new Map<number, number[]>()
-        grid.set(key, byRoute)
-      }
-      const list = byRoute.get(entry.routeIndex)
-      if (list) list.push(i)
-      else byRoute.set(entry.routeIndex, [i])
-    }
-  }
-
-  const cellsByRoute = new Map<number, RouteCell[]>()
-  for (const [key, byRoute] of grid) {
-    const colon = key.indexOf(":")
-    const cy = Number(key.slice(0, colon))
-    const cx = Number(key.slice(colon + 1))
-    for (const [routeIndex, vertices] of byRoute) {
-      const list = cellsByRoute.get(routeIndex)
-      if (list) list.push({ cy, cx, vertices })
-      else cellsByRoute.set(routeIndex, [{ cy, cx, vertices }])
-    }
-  }
-
   for (const entry of entries) {
     entry.turnaroundArcKm = detectTurnaroundArcKm(entry)
   }
-
-  return { entries, cellSizeDeg, grid, cellsByRoute, transferCache: new Map() }
+  return { entries, transferCache: new Map() }
 }
 
 const indexCache = new WeakMap<Route[], RouteIndex>()
@@ -276,29 +172,13 @@ export function getRouteIndex(routes: Route[]): RouteIndex {
 
 export interface Ride {
   distanceKm: number
-  /**
-   * Terminals crossed en route. Each one means a layover, and usually being put
-   * off and re-boarding.
-   */
+  /** Terminals crossed en route, each a layover and usually a re-board. */
   terminalsCrossed: number
   /** True when travelling against the stored vertex order of a two-way corridor. */
   reversed: boolean
 }
 
-/**
- * What it costs a passenger, in distance and terminal layovers, to ride from one
- * arc position to another.
- *
- * The direction rule differs by how the route is stored, and getting this wrong is
- * what makes a planner recommend a jeep heading the other way:
- *
- *  - A **ring** encodes both directions of travel as one increasing sequence, so
- *    only increasing arc is possible. Rides that cross a terminal are allowed but
- *    charged for, because you really do sit through the turnaround.
- *  - A **corridor** stored as a single open line (here, Panabo to Davao City)
- *    records only one direction of a service that runs both ways on the same
- *    road. Refusing the reverse direction wrongly deletes half of it.
- */
+// Rings only ride forward (wrapping costs a terminal); open corridors run both ways.
 export function rideAlongRoute(entry: RouteIndexEntry, fromKm: number, toKm: number): Ride {
   if (!entry.isLoop) {
     // Two-way corridor: either direction is real service, no terminal involved.
@@ -323,7 +203,6 @@ export function rideAlongRoute(entry: RouteIndexEntry, fromKm: number, toKm: num
     reversed: false,
   }
 }
-
 
 /** Index of the segment containing `arcKm`, via binary search on `cum`. */
 function segmentIndexAtArc(entry: RouteIndexEntry, arcKm: number): number {
@@ -375,17 +254,11 @@ function sliceForward(entry: RouteIndexEntry, fromKm: number, toKm: number): [nu
   return path
 }
 
-/**
- * The ridden arc only, as [lat, lng] pairs — not the whole ring.
- *
- * Drawing only what the passenger actually rides is what communicates direction
- * on screen; drawing the full loop tells the user nothing about which way to go.
- */
+/** The ridden arc only, as [lat, lng] pairs, not the whole ring. */
 export function sliceArcPath(entry: RouteIndexEntry, fromKm: number, toKm: number): [number, number][] {
   if (toKm >= fromKm) return sliceForward(entry, fromKm, toKm)
 
-  // A two-way corridor ridden against its stored order: same road, reversed, so
-  // the path must come back in travel order for the direction arrows to be right.
+  // Corridor ridden against stored order: reverse so arrows point the travel way.
   if (!entry.isLoop) return sliceForward(entry, toKm, fromKm).reverse()
 
   // Wraps the seam: ride to the end of the ring, then continue from the start.
