@@ -99,6 +99,25 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 - **Access cost.** Up to 500 m this is walking time. Beyond that it is `min(walk, tricycle)` plus a 6 min/km penalty. Tricycle awareness has to live *inside* the cost. Otherwise the planner picks a 1.1 km walk because walking looked cheap, then the UI suggests a tricycle for a plan that was only chosen on the assumption you'd walk.
 - **Waits.** Boarding wait is 4 min. Transfer wait is 5 min, set higher so a direct ride beats an equal-length transfer.
 - **Terminals.** Each terminal crossed adds an 8 min layover penalty. Rides covering more than 75% of a loop are rejected.
+- **Doubtful data.** Riding a route against its drawn direction, or riding a coarse route (under 60 points), adds 2 min each. A ride is never rejected for this. The penalty only decides ties, such as "Panabo to Davao City" against "Sasa via JP Laurel" on the same street.
+- **Rare routes.** Routes in `INFREQUENT_ROUTES` (for now only "Panabo to Davao City") wait 15 min instead of 4.
+  - That wait shows in the trip time and in the leg details, and the trip carries a "passes rarely" warning.
+  - A rare route is never merged into a frequent twin as "Also goes there". It stays its own card, ranked below the frequent one.
+- **Pruning.**
+  - Plans that cost more than 20 min above the best plan are dropped.
+  - A plan that needs a tricycle is shown only when it beats the fastest walkable plan by at least 10 min.
+  - From R. Castillo to Sasa, this removes "Panacan via Cabaguio" (a 1.2 km tricycle ride for 2 min saved) and "Lasang via Buhangin" (50 min).
+- **Loading hubs** (`lib/loading-hubs.ts`).
+  - **The problem.** Outbound jeeps fill up where they load downtown. At rush hour (5–8 AM and 5–8 PM Davao time), riders who try to board further out are left waiting.
+  - **Transfer penalty.** At rush hour, transferring onto a hub-served route more than 500 m past its hub, in the outbound direction, adds a 15 min seat wait.
+    - The wait counts toward the displayed time, and the trip gets a warning.
+    - First boardings are never penalized, so a rider standing on the route boards where they are.
+  - **Hub as a transfer point.** Each hub is always offered as a transfer point, because transfer search keeps only the shortest-walk point of a shared stretch and would otherwise skip it.
+  - **Loop turnaround.** A loop's geometric turnaround within 1.5 km of its hub moves onto the hub, so boarding at the hub isn't treated as riding through a terminal.
+  - **Sources.**
+    - The route-to-hub list comes from the Lakbay Agila commuter guide (2024), checked against news coverage of the PHABS peak-hour buses and DC Bus routes. There is no official list.
+    - Roxas Ave and Acacia have high confidence. Bankerohan, Agdao, R. Magsaysay, Gaisano Bajada, San Pedro and Ecoland have medium confidence.
+    - "Acacia" means the downtown junction, not Barangay Acacia in Buhangin.
 - **Fares.**
   - Jeepney fares follow the LTFRB traditional-jeepney fare in force from 28 Sept 2026: ₱14 for the first 4 km, then ₱2 for each whole extra km. Conductors charge per whole km band.
   - Tricycle fares are an informal estimate: ₱20 plus ₱10 per km.
@@ -124,6 +143,7 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 
 - Origin is always the rider's GPS position. There is no manual "from" field yet.
 - At most one transfer per trip.
+- No Mandug, Tigatto or Cabantian route is in the data yet, so trips there can't be planned.
 - The route data is a static snapshot. Routes that changed after it was captured will be wrong.
 - Fares are estimates. The LTFRB changes them, and riders can edit them in Fare settings.
 - `planTrips` runs on the main thread. The first search builds the index and can take a moment on low-end phones.

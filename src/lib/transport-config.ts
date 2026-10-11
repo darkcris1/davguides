@@ -36,6 +36,28 @@ export const THRESHOLDS = {
   LOOP_CLOSE_TOLERANCE_KM: 0.02,
   /** Layover cost per terminal crossed, so the long way round a loop isn't free. */
   TERMINAL_LAYOVER_PENALTY_MIN: 8,
+  /** Riding a one-way-mapped route against its drawn direction. */
+  REVERSED_RIDE_PENALTY_MIN: 2,
+  /** Route drawn with too few points to trust its path or length. */
+  COARSE_ROUTE_PENALTY_MIN: 2,
+
+  /** Rush-hour windows, Davao time, when outbound jeeps fill up at their loading hub. */
+  PEAK_HOURS_MANILA: [[5, 8], [17, 20]] as [number, number][],
+  /** Expected wait for a seat when transferring onto a jeep well past its hub at rush hour. */
+  FULL_JEEP_PENALTY_MIN: 15,
+  /** Boarding this far past the hub still counts as boarding at the hub. */
+  HUB_BOARDING_FREE_KM: 0.5,
+  /** A route must pass this close to a hub for the hub to apply to it. */
+  HUB_MATCH_KM: 0.5,
+  /** A loop turnaround this far past its hub moves onto the hub. */
+  HUB_TURNAROUND_SNAP_KM: 1.5,
+
+  /** Typical wait for a route that rarely passes, replacing the normal boarding wait. */
+  INFREQUENT_WAIT_MIN: 15,
+  /** Plans costing this much more than the best are dropped as noise. */
+  MAX_EXTRA_COST_MIN: 20,
+  /** A tricycle-access plan must beat the best walkable plan by this much to be shown. */
+  TRICYCLE_DETOUR_MIN_SAVING_MIN: 10,
   /** Reject rides that circle most of a loop to get somewhere. */
   MAX_RIDE_ARC_FRACTION: 0.75,
 
@@ -68,6 +90,9 @@ export const THRESHOLDS = {
 }
 
 export type Thresholds = typeof THRESHOLDS
+
+// Routes that pass rarely, such as provincial jeeps that mostly skip city riders.
+export const INFREQUENT_ROUTES: ReadonlySet<string> = new Set(["Panabo to Davao City"])
 
 export function resolveThresholds(overrides?: Partial<Thresholds>): Thresholds {
   return overrides ? { ...THRESHOLDS, ...overrides } : THRESHOLDS

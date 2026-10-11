@@ -3,6 +3,18 @@
 import type { Route } from "@/commons/models/maps"
 import { THRESHOLDS } from "./transport-config"
 import { bboxOf, haversineKm, planarFrame, type BBox } from "./geo"
+import { LOADING_HUBS } from "./loading-hubs"
+
+/** Where a route loads at a hub, and the stretch it runs outbound from there. */
+export interface HubSpan {
+  name: string
+  lat: number
+  lng: number
+  /** Last pass by the hub before heading out. */
+  arcKm: number
+  /** Point farthest from the hub, where the outbound run ends. */
+  farArcKm: number
+}
 
 export interface RouteIndexEntry {
   routeIndex: number
@@ -21,6 +33,7 @@ export interface RouteIndexEntry {
   chunkCount: number
   /** 4 floats per chunk of CHUNK_SIZE segments: minLng, minLat, maxLng, maxLat. */
   chunkBBox: Float64Array
+  hubs: HubSpan[]
 }
 
 export interface TransferPoint {
@@ -92,7 +105,69 @@ function buildEntry(route: Route, routeIndex: number): RouteIndexEntry {
     bbox: bboxOf(coords),
     chunkCount,
     chunkBBox,
+    hubs: [],
   }
+}
+
+function forwardKm(entry: RouteIndexEntry, fromKm: number, toKm: number): number {
+  return entry.isLoop ? (toKm - fromKm + entry.totalKm) % entry.totalKm : Math.abs(toKm - fromKm)
+}
+
+function detectHubSpans(entry: RouteIndexEntry): HubSpan[] {
+  const { coords, cum } = entry
+  const spans: HubSpan[] = []
+
+  for (const hub of LOADING_HUBS) {
+    if (!hub.routes.includes(entry.name)) continue
+
+    let farArcKm = 0
+    let farKm = -1
+    const near: { arcKm: number; km: number }[] = []
+    for (let i = 0; i < coords.length; i++) {
+      const km = haversineKm(hub.lat, hub.lng, coords[i][1], coords[i][0])
+      if (km > farKm) {
+        farKm = km
+        farArcKm = cum[i]
+      }
+      if (km <= THRESHOLDS.HUB_MATCH_KM) near.push({ arcKm: cum[i], km })
+    }
+    if (near.length === 0) continue
+
+    // The jeep loads on its last pass before the outbound run, at the point nearest the hub.
+    const lastPassKm = Math.min(...near.map((p) => forwardKm(entry, p.arcKm, farArcKm)))
+    const finalPass = near.filter((p) => forwardKm(entry, p.arcKm, farArcKm) <= lastPassKm + 2 * THRESHOLDS.HUB_MATCH_KM)
+    const arcKm = finalPass.reduce((best, p) => (p.km < best.km ? p : best)).arcKm
+    spans.push({ name: hub.name, lat: hub.lat, lng: hub.lng, arcKm, farArcKm })
+  }
+
+  return spans
+}
+
+/** How a boarding point relates to the route's loading hubs, or null when none applies. */
+export function hubBoarding(entry: RouteIndexEntry, boardArcKm: number, ride: Ride, freeKm: number): { hub: HubSpan; past: boolean } | null {
+  let past: HubSpan | null = null
+
+  for (const hub of entry.hubs) {
+    let offsetKm: number
+    let outboundKm: number
+    if (entry.isLoop) {
+      offsetKm = forwardKm(entry, hub.arcKm, boardArcKm)
+      outboundKm = forwardKm(entry, hub.arcKm, hub.farArcKm)
+    } else {
+      // Open corridors run both ways; only the ride heading away from the hub is outbound.
+      const outward = hub.farArcKm >= hub.arcKm ? 1 : -1
+      if (outward !== (ride.reversed ? -1 : 1)) continue
+      offsetKm = (boardArcKm - hub.arcKm) * outward
+      outboundKm = Math.abs(hub.farArcKm - hub.arcKm)
+    }
+
+    // At the far terminal the jeep starts its inbound run empty.
+    if (offsetKm < 0 || offsetKm >= outboundKm) continue
+    if (offsetKm <= freeKm) return { hub, past: false }
+    past ??= hub
+  }
+
+  return past ? { hub: past, past: true } : null
 }
 
 // Loose on purpose: return legs usually run on a parallel street 160-645 m away.
@@ -155,6 +230,14 @@ export function buildRouteIndex(routes: Route[]): RouteIndex {
   const entries = routes.map((route, i) => buildEntry(route, i))
   for (const entry of entries) {
     entry.turnaroundArcKm = detectTurnaroundArcKm(entry)
+    entry.hubs = detectHubSpans(entry)
+    // A turnaround just past a loading hub is really that hub, where the jeep turns and loads.
+    const turnaround = entry.turnaroundArcKm
+    const hub =
+      turnaround == null
+        ? undefined
+        : entry.hubs.find((h) => h.arcKm <= turnaround && turnaround - h.arcKm <= THRESHOLDS.HUB_TURNAROUND_SNAP_KM)
+    if (hub) entry.turnaroundArcKm = hub.arcKm
   }
   return { entries, transferCache: new Map() }
 }

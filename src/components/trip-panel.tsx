@@ -111,6 +111,7 @@ function LegDetail({ leg, color, alternatives, fare }: { leg: TripLeg; color: st
         {leg.mode === "jeepney" ? (
           <p className="mt-0.5 text-xs text-slate-600">
             {formatDistance(leg.distanceKm)} · {formatDuration(leg.durationMin)} · {formatPhp(legFarePhp(leg, fare))}
+            {leg.extraWaitMin ? ` · +${formatDuration(leg.extraWaitMin)} wait` : ""}
             {(leg.terminalsCrossed ?? 0) > 0 && " · passes a terminal"}
           </p>
         ) : (

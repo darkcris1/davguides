@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import SearchBox from "@/components/search-box"
 import TripPanel from "@/components/trip-panel"
 import type { MapInsets } from "@/components/map-component"
 import { planTrips } from "@/lib/route-engine"
+import { isPeakHour } from "@/lib/loading-hubs"
+import { THRESHOLDS } from "@/lib/transport-config"
 import { useFareConfig } from "@/lib/use-fare-config"
 import { useRouteData } from "@/lib/use-route-data"
 import { useUserLocation } from "@/lib/use-user-location"
@@ -20,6 +22,13 @@ const MapComponent = dynamic(() => import("@/components/map-component"), {
 })
 
 const MOBILE_QUERY = "(max-width: 767px)"
+
+// A minute tick is enough to catch rush hour starting or ending.
+const subscribeMinute = (onChange: () => void) => {
+  const timer = setInterval(onChange, 60_000)
+  return () => clearInterval(timer)
+}
+const readPeak = () => isPeakHour(new Date(), THRESHOLDS.PEAK_HOURS_MANILA)
 const SWIPE_PX = 30
 
 type ElementRef = React.RefObject<HTMLElement | null>
@@ -63,11 +72,12 @@ export default function AppShell() {
   const sheetRef = useRef<HTMLElement>(null)
   const swipeStartRef = useRef<number | null>(null)
   const { insets, readInsets } = useMobileInsets(headerRef, sheetRef)
+  const peak = useSyncExternalStore(subscribeMinute, readPeak, () => false)
 
   const trips = useMemo(() => {
     if (!routeData || !destination || !location.location) return []
-    return planTrips(routeData.routes, location.location, destination)
-  }, [routeData, destination, location.location])
+    return planTrips(routeData.routes, location.location, destination, { peak })
+  }, [routeData, destination, location.location, peak])
 
   // Reset the pick during render when the plans change, so the map never draws a stale index.
   const [activeIndex, setActiveIndex] = useState(0)

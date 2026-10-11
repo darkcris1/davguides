@@ -29,12 +29,14 @@ import {
   jeepneyMinutes,
   resolveThresholds,
   tricycleMinutes,
+  INFREQUENT_ROUTES,
   walkMinutes,
   type AccessMode,
   type Thresholds,
 } from "./transport-config"
 import {
   getRouteIndex,
+  hubBoarding,
   pointAtArcKm,
   rideAlongRoute,
   sliceArcPath,
@@ -85,6 +87,8 @@ export interface TripLeg {
   terminalsCrossed?: number
   /** Riding a two-way corridor against its stored direction. */
   reversed?: boolean
+  /** Wait beyond the usual one, for a rare route or a full jeep at rush hour. */
+  extraWaitMin?: number
   /** Gap legs carry both estimates so the panel can offer the choice. */
   walkMin?: number
   tricycleMin?: number
@@ -120,6 +124,8 @@ export interface PlanTripsOptions {
   maxResults?: number
   allowTransfers?: boolean
   thresholds?: Partial<Thresholds>
+  /** Rush hour moves transfers to where jeeps load. */
+  peak?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +374,7 @@ export function findTransferPoints(
     deduped.push(point)
   }
 
-  const capped =
+  const capped: TransferPoint[] =
     deduped.length > t.MAX_TRANSFER_POINTS_PER_PAIR
       ? deduped
           .slice()
@@ -376,6 +382,19 @@ export function findTransferPoints(
           .slice(0, t.MAX_TRANSFER_POINTS_PER_PAIR)
           .sort((x, y) => x.arcAKm - y.arcAKm)
       : deduped
+
+  // Shared stretches keep only their shortest-walk point, which can skip the hub where B loads.
+  for (const hub of entryB.hubs) {
+    const [hubLat, hubLng] = pointAtArcKm(entryB, hub.arcKm)
+    let best: TransferPoint | null = null
+    for (let ia = 0; ia < entryA.coords.length; ia++) {
+      const walkKm = haversineKm(hubLat, hubLng, entryA.coords[ia][1], entryA.coords[ia][0])
+      if (walkKm <= maxWalkKm && (!best || walkKm < best.walkKm)) {
+        best = { arcAKm: entryA.cum[ia], arcBKm: hub.arcKm, walkKm, lat: entryA.coords[ia][1], lng: entryA.coords[ia][0] }
+      }
+    }
+    if (best) capped.push(best)
+  }
 
   index.transferCache.set(key, capped)
   return capped
@@ -417,6 +436,7 @@ function jeepneyLeg(
   boardArcKm: number,
   alightArcKm: number,
   ride: Ride,
+  baseWaitMin: number,
   t: Thresholds,
 ): TripLeg {
   const from = pointAtArcKm(entry, boardArcKm)
@@ -436,6 +456,7 @@ function jeepneyLeg(
     alightArcKm,
     terminalsCrossed: ride.terminalsCrossed,
     reversed: ride.reversed,
+    extraWaitMin: infrequentWaitMin(entry, baseWaitMin, t) || undefined,
     instruction: `Ride the ${entry.name} jeepney`,
   }
 }
@@ -454,8 +475,9 @@ function finalizePlan(
   const transferCount = Math.max(0, jeepneyLegs.length - 1)
 
   const legMinutes = legs.reduce((sum, l) => sum + l.durationMin, 0)
+  const extraWait = jeepneyLegs.reduce((sum, l) => sum + (l.extraWaitMin ?? 0), 0)
   const waitMinutes =
-    jeepneyLegs.length > 0 ? t.BOARD_WAIT_MIN + transferCount * t.TRANSFER_WAIT_MIN : 0
+    jeepneyLegs.length > 0 ? t.BOARD_WAIT_MIN + transferCount * t.TRANSFER_WAIT_MIN + extraWait : 0
 
   const gapLegs = legs.filter((l) => l.mode === "walk" || l.mode === "tricycle")
   const lastGapIsAlight = legs.length > 1 && legs[legs.length - 1].mode !== "jeepney"
@@ -495,9 +517,18 @@ function rideIsUsable(entry: RouteIndexEntry, ride: Ride, t: Thresholds): boolea
   return true
 }
 
-/** Time on board plus the layovers the ride sits through. */
-function rideCostMin(ride: Ride, t: Thresholds): number {
-  return jeepneyMinutes(ride.distanceKm, t) + ride.terminalsCrossed * t.TERMINAL_LAYOVER_PENALTY_MIN
+const rareRouteWarning = (name: string) => `${name} jeeps pass rarely; expect a long wait.`
+
+/** Extra minutes waiting for a route that rarely passes. */
+function infrequentWaitMin(entry: RouteIndexEntry, baseWaitMin: number, t: Thresholds): number {
+  return INFREQUENT_ROUTES.has(entry.name) ? Math.max(0, t.INFREQUENT_WAIT_MIN - baseWaitMin) : 0
+}
+
+/** Ride time plus layovers, data-doubt penalties and any rare-route wait. */
+function rideCostMin(entry: RouteIndexEntry, ride: Ride, baseWaitMin: number, t: Thresholds): number {
+  // Uncertain geometry or direction loses ties to a well-mapped route on the same street.
+  const doubt = (ride.reversed ? t.REVERSED_RIDE_PENALTY_MIN : 0) + (isCoarse(entry) ? t.COARSE_ROUTE_PENALTY_MIN : 0)
+  return jeepneyMinutes(ride.distanceKm, t) + ride.terminalsCrossed * t.TERMINAL_LAYOVER_PENALTY_MIN + doubt + infrequentWaitMin(entry, baseWaitMin, t)
 }
 
 function solveDirect(
@@ -525,7 +556,7 @@ function solveDirect(
 
         const cost =
           accessCostMin(board.walkKm, t) +
-          rideCostMin(ride, t) +
+          rideCostMin(entry, ride, t.BOARD_WAIT_MIN, t) +
           accessCostMin(alight.walkKm, t) +
           t.BOARD_WAIT_MIN
 
@@ -544,7 +575,7 @@ function solveDirect(
     if (best.board.walkKm > NEGLIGIBLE_GAP_KM) {
       legs.push(gapLeg(originPoint, boardPoint, best.board.walkKm, `board the ${entry.name} jeepney`, t))
     }
-    legs.push(jeepneyLeg(entry, best.board.arcKm, best.alight.arcKm, best.ride, t))
+    legs.push(jeepneyLeg(entry, best.board.arcKm, best.alight.arcKm, best.ride, t.BOARD_WAIT_MIN, t))
     if (best.alight.walkKm > NEGLIGIBLE_GAP_KM) {
       legs.push(gapLeg(alightPoint, destinationPoint, best.alight.walkKm, "your destination", t))
     }
@@ -560,6 +591,7 @@ function solveDirect(
     }
     if (isCoarse(entry)) warnings.push(`${entry.name} route data is coarse; the boarding point is approximate.`)
     if (best.board.walkKm > t.MAX_ACCESS_WALK_KM) warnings.push("The nearest boarding point is a long way off.")
+    if (INFREQUENT_ROUTES.has(entry.name)) warnings.push(rareRouteWarning(entry.name))
 
     out.push({ plan: finalizePlan(legs, radiusKm, t, warnings), cost: best.cost })
   }
@@ -587,6 +619,7 @@ function solveTransfers(
   alights: Map<number, AccessPoint[]>,
   radiusKm: number,
   t: Thresholds,
+  peak: boolean,
 ): ScoredPlan[] {
   const out: ScoredPlan[] = []
   const boardRoutes = topRoutes(boards, t.MAX_TRANSFER_ROUTE_FANOUT)
@@ -623,7 +656,7 @@ function solveTransfers(
         for (const board of boardPoints) {
           const ride = rideAlongRoute(entryA, board.arcKm, transfer.arcAKm)
           if (!rideIsUsable(entryA, ride, t)) continue
-          const cost = accessCostMin(board.walkKm, t) + rideCostMin(ride, t) + t.BOARD_WAIT_MIN
+          const cost = accessCostMin(board.walkKm, t) + rideCostMin(entryA, ride, t.BOARD_WAIT_MIN, t) + t.BOARD_WAIT_MIN
           if (!bestBoard || cost < bestBoard.cost) bestBoard = { cost, point: board, ride }
         }
         if (!bestBoard) continue
@@ -632,7 +665,9 @@ function solveTransfers(
         for (const alight of alightPoints) {
           const ride = rideAlongRoute(entryB, transfer.arcBKm, alight.arcKm)
           if (!rideIsUsable(entryB, ride, t)) continue
-          const cost = rideCostMin(ride, t) + accessCostMin(alight.walkKm, t) + t.TRANSFER_WAIT_MIN
+          const full = peak && hubBoarding(entryB, transfer.arcBKm, ride, t.HUB_BOARDING_FREE_KM)?.past
+          const cost =
+            rideCostMin(entryB, ride, t.TRANSFER_WAIT_MIN, t) + accessCostMin(alight.walkKm, t) + t.TRANSFER_WAIT_MIN + (full ? t.FULL_JEEP_PENALTY_MIN : 0)
           if (!bestAlight || cost < bestAlight.cost) bestAlight = { cost, point: alight, ride }
         }
         if (!bestAlight) continue
@@ -667,11 +702,16 @@ function solveTransfers(
           ),
         )
       }
-      legs.push(jeepneyLeg(entryA, best.board.arcKm, best.transfer.arcAKm, best.ride1, t))
+      legs.push(jeepneyLeg(entryA, best.board.arcKm, best.transfer.arcAKm, best.ride1, t.BOARD_WAIT_MIN, t))
       if (best.transfer.walkKm > NEGLIGIBLE_GAP_KM) {
         legs.push(gapLeg(transferOnA, transferOnB, best.transfer.walkKm, `transfer to the ${entryB.name} jeepney`, t))
       }
-      legs.push(jeepneyLeg(entryB, best.transfer.arcBKm, best.alight.arcKm, best.ride2, t))
+      const loading = hubBoarding(entryB, best.transfer.arcBKm, best.ride2, t.HUB_BOARDING_FREE_KM)
+      const secondRide = jeepneyLeg(entryB, best.transfer.arcBKm, best.alight.arcKm, best.ride2, t.TRANSFER_WAIT_MIN, t)
+      if (loading && !loading.past) secondRide.instruction = `Ride the ${entryB.name} jeepney from ${loading.hub.name}, where it loads`
+      // The seat wait is real time, so it belongs in the total the rider sees.
+      if (peak && loading?.past) secondRide.extraWaitMin = (secondRide.extraWaitMin ?? 0) + t.FULL_JEEP_PENALTY_MIN
+      legs.push(secondRide)
       if (best.alight.walkKm > NEGLIGIBLE_GAP_KM) {
         legs.push(
           gapLeg(
@@ -693,6 +733,12 @@ function solveTransfers(
       }
       if (isCoarse(entryA) || isCoarse(entryB)) {
         warnings.push("Route data is coarse here; boarding points are approximate.")
+      }
+      for (const entry of [entryA, entryB]) {
+        if (INFREQUENT_ROUTES.has(entry.name)) warnings.push(rareRouteWarning(entry.name))
+      }
+      if (peak && loading?.past) {
+        warnings.push(`At rush hour ${entryB.name} jeeps are often full past ${loading.hub.name}; allow about ${t.FULL_JEEP_PENALTY_MIN} min to get a seat.`)
       }
 
       out.push({ plan: finalizePlan(legs, radiusKm, t, warnings), cost: best.cost })
@@ -741,6 +787,8 @@ function dedupePlans(scored: ScoredPlan[], t: Thresholds): ScoredPlan[] {
       if (keptJeeps.length !== candidateJeeps.length) return false
       return keptJeeps.every((leg, i) => {
         const other = candidateJeeps[i]
+        // A rare route is a real fallback, not just another name for the same ride.
+        if (INFREQUENT_ROUTES.has(leg.routeName ?? "") !== INFREQUENT_ROUTES.has(other.routeName ?? "")) return false
         // Matching endpoints alone is not enough: two routes can board and alight
         // in the same spots yet take very different paths between them, and
         // calling those interchangeable would send riders 3 km out of their way.
@@ -775,6 +823,22 @@ function dedupePlans(scored: ScoredPlan[], t: Thresholds): ScoredPlan[] {
 // Entry point
 // ---------------------------------------------------------------------------
 
+const needsTricycle = (plan: TripPlan) => plan.needsTricycleFirstMile || plan.needsTricycleLastMile || plan.needsTricycleTransfer
+
+// Drops far-worse plans, and tricycle detours that barely beat a jeep within walking distance.
+function pruneWeakPlans(plans: ScoredPlan[], t: Thresholds): ScoredPlan[] {
+  if (plans.length === 0) return plans
+  const best = plans.reduce((a, b) => (b.cost < a.cost ? b : a))
+  const affordable = plans.filter((p) => p.cost <= best.cost + t.MAX_EXTRA_COST_MIN)
+  const walkable = affordable.filter((p) => !needsTricycle(p.plan))
+  const bestWalkableMin = walkable.length > 0 ? Math.min(...walkable.map((p) => p.plan.totalDurationMin)) : Number.POSITIVE_INFINITY
+
+  const kept = affordable.filter(
+    (p) => !needsTricycle(p.plan) || p.plan.totalDurationMin <= bestWalkableMin - t.TRICYCLE_DETOUR_MIN_SAVING_MIN,
+  )
+  return kept.length > 0 ? kept : [best]
+}
+
 function walkOnlyPlan(origin: LatLng, destination: LatLng, distKm: number, t: Thresholds): TripPlan {
   const leg = gapLeg([origin.lat, origin.lng], [destination.lat, destination.lng], distKm, "your destination", t)
   return finalizePlan([leg], 0, t, [])
@@ -796,6 +860,7 @@ export function planTrips(
   const t = resolveThresholds(options.thresholds)
   const maxResults = options.maxResults ?? t.MAX_RESULTS
   const allowTransfers = options.allowTransfers ?? true
+  const peak = options.peak ?? false
 
   const straightKm = haversineKm(origin.lat, origin.lng, destination.lat, destination.lng)
   if (straightKm < t.MIN_RIDE_KM) return [walkOnlyPlan(origin, destination, straightKm, t)]
@@ -829,11 +894,11 @@ export function planTrips(
         ))
 
     const transfers = wantTransfers
-      ? solveTransfers(index, origin, destination, boards, alights, radiusKm, t)
+      ? solveTransfers(index, origin, destination, boards, alights, radiusKm, t, peak)
       : []
 
     pool.push(...direct, ...transfers)
-    best = dedupePlans(pool, t)
+    best = dedupePlans(pruneWeakPlans(pool, t), t)
 
     // Stop only once there are enough plans that actually head where the rider is
     // going. Counting detours here is what previously let three long way-round
