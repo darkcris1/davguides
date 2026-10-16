@@ -122,14 +122,14 @@ export default function MapComponent({
     const map = L.map(containerRef.current, { zoomControl: false }).setView(DAVAO_CENTER, 13)
     maplibreGL({ style: MAP_STYLE_URL }).addTo(map)
 
-    // On phones the credits show at load, then fold behind an info button once the rider touches the map.
+    // On phones the credits stay folded behind an info button until tapped.
     const attribution = map.attributionControl.getContainer()
-    attribution?.classList.add("dg-attrib", "dg-attrib-open")
+    attribution?.classList.add("dg-attrib")
     const creditsButton = L.DomUtil.create("button", "dg-attrib-toggle")
     creditsButton.type = "button"
     creditsButton.textContent = "i"
     creditsButton.setAttribute("aria-label", "Map credits")
-    creditsButton.setAttribute("aria-expanded", "true")
+    creditsButton.setAttribute("aria-expanded", "false")
     const setCredits = (open: boolean) => {
       attribution?.classList.toggle("dg-attrib-open", open)
       creditsButton.setAttribute("aria-expanded", String(open))
