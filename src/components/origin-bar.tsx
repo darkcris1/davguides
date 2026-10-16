@@ -18,24 +18,25 @@ const iconButton =
 
 // Shows where the trip starts, with a way back to GPS and a from/to swap.
 export default function OriginBar({ manualName, gpsStatus, canSwap, onUseGps, onSwap }: OriginBarProps) {
-  const label = manualName
-    ? shortPlaceName(manualName)
-    : gpsStatus === "ready"
-      ? "Your location"
-      : gpsStatus === "error"
-        ? "Location off. Long-press the map to set a start."
-        : "Finding your location…"
+  const locationOff = !manualName && gpsStatus === "error"
+  const label = manualName ? shortPlaceName(manualName) : gpsStatus === "ready" ? "Your location" : "Finding your location…"
   return (
     <div className="flex h-11 items-center rounded-full bg-white/95 pl-4 shadow-md ring-1 ring-black/10 backdrop-blur md:bg-slate-50 md:shadow-none">
       <span className={cn("size-2.5 shrink-0 rounded-full ring-2 ring-white", manualName ? "bg-[var(--dg-navy)]" : "bg-[#4285F4]")} aria-hidden />
       <p className="min-w-0 flex-1 truncate px-2.5 text-sm text-slate-700">
-        <span className="text-slate-500">From </span>
-        <span className="font-medium text-[var(--dg-ink)]" title={manualName ?? undefined}>
-          {label}
-        </span>
+        {locationOff ? (
+          <span className="font-medium text-[var(--dg-ink)]">Long-press map to set start</span>
+        ) : (
+          <>
+            <span className="text-slate-500">From </span>
+            <span className="font-medium text-[var(--dg-ink)]" title={manualName ?? undefined}>
+              {label}
+            </span>
+          </>
+        )}
       </p>
       {manualName && (
-        <button type="button" onClick={onUseGps} aria-label="Start from my location" className={iconButton}>
+        <button type="button" onClick={onUseGps} aria-label="Use my location" className={iconButton}>
           <LocateFixed className="size-5" aria-hidden />
         </button>
       )}

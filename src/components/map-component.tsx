@@ -304,7 +304,7 @@ export default function MapComponent({
         <button type="button" aria-label="Zoom out" onClick={() => mapRef.current?.zoomOut()} className={`${controlClass} max-md:hidden`}>
           <Minus className="size-5" aria-hidden />
         </button>
-        <button type="button" aria-label="Show my location" onClick={onLocate} className={controlClass}>
+        <button type="button" aria-label="Use my location" onClick={onLocate} className={controlClass}>
           <LocateFixed className="size-5" aria-hidden />
         </button>
       </div>

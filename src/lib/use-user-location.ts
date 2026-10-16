@@ -20,9 +20,9 @@ export interface UserLocationState {
 const MIN_MOVE_KM = 0.02
 
 function describeError(error: GeolocationPositionError): string {
-  if (error.code === error.PERMISSION_DENIED) return "Location access is off. Allow it in your browser settings, then tap Locate."
-  if (error.code === error.TIMEOUT) return "Finding your location took too long. Tap Locate to try again."
-  return "Your device couldn't get a location fix. Turn on GPS or move near a window, then tap Locate."
+  if (error.code === error.PERMISSION_DENIED) return "Location access is off. Allow it in your browser settings, then tap Use my location."
+  if (error.code === error.TIMEOUT) return "Finding your location took too long. Tap Use my location to try again."
+  return "Your device couldn't get a location fix. Turn on GPS or move near a window, then tap Use my location."
 }
 
 const POSITION_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }

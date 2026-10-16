@@ -317,12 +317,11 @@ function DiscountToggle({ fare, onFareChange }: Pick<TripPanelProps, "fare" | "o
   )
 }
 
-function Notice({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+function Notice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
       <h2 className="font-signboard text-2xl font-bold uppercase leading-none tracking-wide text-[var(--dg-ink)]">{title}</h2>
       <div className="text-sm leading-relaxed text-slate-700">{children}</div>
-      {action}
     </div>
   )
 }
@@ -354,8 +353,10 @@ export default function TripPanel(props: TripPanelProps) {
 
   if (locationStatus === "error") {
     return (
-      <Notice title="Your location is needed" action={retry}>
+      <Notice title="Your location is needed">
         <p>Routes start from where you are. {locationError} Or long-press the map to set your start.</p>
+        {/* The button sits above the guide so it shows without scrolling. */}
+        {retry}
         <div className="mt-3">
           <LocationHelp defaultOpen />
         </div>

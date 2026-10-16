@@ -207,7 +207,11 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
         </button>
       </div>
 
-      <p role="status" aria-live="polite" className={cn("px-4 pt-2 text-sm text-slate-800", (status.kind === "empty" || status.kind === "error") ? "drop-shadow-[0_1px_0_#fff]" : "sr-only")}>
+      <p role="status" aria-live="polite" className={cn(
+          "text-sm text-slate-800",
+          // A solid card, since the message floats over the map on phones.
+          status.kind === "empty" || status.kind === "error" ? "mt-2 rounded-2xl bg-white px-4 py-2.5 shadow-lg ring-1 ring-black/10" : "sr-only",
+        )}>
         {message}
       </p>
 
