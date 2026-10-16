@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@maplibre/maplibre-gl-leaflet": "^0.1.4",
+    "@vercel/analytics": "^2.0.1",
     "clsx": "^2.1.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.483.0",

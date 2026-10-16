@@ -156,3 +156,31 @@
     animation: dg-arrow-pulse 2s ease-in-out infinite;
   }
 }
+
+/* Long-press drops a pin, so the map must not select text or show the iOS callout. */
+.dg-map {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Dragged pins lift above the finger, like Google Maps; keep the offset in sync with LIFT_PX. */
+.dg-lift {
+  transition: transform 160ms ease-out, filter 160ms ease-out;
+}
+.dg-lifted .dg-lift {
+  transform: translateY(-18px) scale(1.12);
+  filter: drop-shadow(0 10px 6px rgba(0, 0, 0, 0.3));
+}
+.dg-draggable {
+  cursor: grab;
+}
+
+.dg-drop-popup .leaflet-popup-content {
+  margin: 10px 12px;
+}
+
+/* Bottom sheet moves by transform while dragged; keep it on its own layer. */
+.dg-sheet {
+  will-change: transform;
+}

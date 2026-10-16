@@ -138,10 +138,19 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 | [OpenFreeMap](https://openfreemap.org) | Vector basemap, style `liberty`, rendered through `@maplibre/maplibre-gl-leaflet` | No API key. Attribution comes from the style. Import the plugin from the `/leaflet-maplibre-gl` subpath, because the package's ESM `dist/` is missing. |
 | [Nominatim](https://nominatim.org/release-docs/latest/api/Search/) | Place search | At most 1 request per second, search on submit only (no autocomplete), results bounded to a Davao viewbox and filtered to "Davao City". |
 | Browser Geolocation | Trip origin | Fixes worse than 300 m accuracy get a warning. Moves under 20 m are ignored, so GPS jitter doesn't replan. |
+| [FOSSGIS OSRM foot](https://routing.openstreetmap.de/) | Street paths for the active trip's walk and tricycle legs | No API key, fair use only: 1 request/second, active trip only, cached per leg. On failure the leg stays a straight line. Distances and times it returns are display-only, like fares. |
+| Nominatim reverse | Names a pin dropped or dragged on the map | Same 1 request/second budget as search; called on drop or drag end, never during a drag. |
+| Vercel Web Analytics | Visitor counts | The query string is stripped in `beforeSend`, because trip links carry riders' coordinates. |
+
+## Map interaction and URL
+
+- **Pins.** Long-press (450 ms) or right-click drops a destination. Both pins drag; a dragged pin lifts 18 px above the finger and drops where it is drawn. Pin moves replan but don't refit the map; search picks, swaps and trip-card taps do.
+- **Bottom sheet.** `use-bottom-sheet.ts` snaps between peek, half and full. It moves by transform while dragging, then settles to a real height so the content can scroll. A flick over 0.4 px/ms moves one snap.
+- **Trip links.** `?to=&to_name=&from=&from_name=&trip=` restores the endpoints and the picked trip card. `from` is left out when the start is GPS.
 
 ## Known limits
 
-- Origin is always the rider's GPS position. There is no manual "from" field yet.
+- The start is GPS by default. Riders can drag the blue dot or long-press and pick "Start from here instead", but there is no typed "from" search yet.
 - At most one transfer per trip.
 - No Mandug, Tigatto or Cabantian route is in the data yet, so trips there can't be planned.
 - The route data is a static snapshot. Routes that changed after it was captured will be wrong.

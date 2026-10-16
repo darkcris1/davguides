@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next"
 import { Barlow_Condensed, Geist } from "next/font/google"
+import Analytics from "@/components/analytics"
 import { SITE } from "@/lib/site"
 import "./globals.css"
 
@@ -90,6 +91,7 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${barlowCondensed.variable} antialiased`}>
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
         {children}
+        <Analytics />
       </body>
     </html>
   )

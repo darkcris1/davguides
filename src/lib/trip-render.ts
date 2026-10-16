@@ -10,6 +10,7 @@ import { CONTEXT_COLOR, TRICYCLE_COLOR, WALK_COLOR, jeepneyColor } from "./leg-c
 
 const ORIGIN_COLOR = "#4285F4"
 const DESTINATION_COLOR = "#dc2626"
+const START_COLOR = "#1e3a8a"
 
 export interface RenderTripOptions {
   index: RouteIndex
@@ -36,12 +37,24 @@ function labelIcon(color: string, label: string): L.DivIcon {
   })
 }
 
+// Endpoint icons get a 44px hit box so they are easy to grab on a phone.
+const HIT_PX = 44
+
 function pinIcon(color: string): L.DivIcon {
   return L.divIcon({
-    className: "dg-marker",
-    html: `<div style="width:16px;height:16px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 22],
+    className: "dg-marker dg-draggable",
+    html: `<div class="dg-lift" style="width:${HIT_PX}px;height:${HIT_PX}px;display:flex;align-items:flex-end;justify-content:center"><div style="width:20px;height:20px;margin-bottom:6px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.45)"></div></div>`,
+    iconSize: [HIT_PX, HIT_PX],
+    iconAnchor: [HIT_PX / 2, HIT_PX],
+  })
+}
+
+function originIcon(color: string, size: number): L.DivIcon {
+  return L.divIcon({
+    className: "dg-marker dg-draggable",
+    html: `<div class="dg-lift" style="width:${HIT_PX}px;height:${HIT_PX}px;display:flex;align-items:center;justify-content:center"><div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)"></div></div>`,
+    iconSize: [HIT_PX, HIT_PX],
+    iconAnchor: [HIT_PX / 2, HIT_PX / 2],
   })
 }
 
@@ -160,26 +173,88 @@ export function renderTrip(group: L.LayerGroup, trip: TripPlan, options: RenderT
   return bounds
 }
 
+export interface EndpointOptions {
+  map: L.Map
+  /** True when the rider set the start by hand instead of GPS. */
+  originIsManual: boolean
+  /** GPS accuracy in metres, drawn as a faint circle around a GPS start. */
+  accuracyM: number | null
+  onMoveOrigin: (latlng: L.LatLng) => void
+  onMoveDestination: (latlng: L.LatLng) => void
+}
+
+// Hide the accuracy ring once it is too big to mean anything.
+const MAX_ACCURACY_RING_M = 2000
+// Matches the .dg-lifted offset in globals.css, so the pin drops where it is drawn.
+const LIFT_PX = 18
+
+function makeDraggable(map: L.Map, marker: L.Marker, onMove: (latlng: L.LatLng) => void, onStart?: () => void) {
+  marker.on("dragstart", () => {
+    marker.getElement()?.classList.add("dg-lifted")
+    marker.closePopup()
+    onStart?.()
+  })
+  marker.on("dragend", () => {
+    marker.getElement()?.classList.remove("dg-lifted")
+    const latlng = map.containerPointToLatLng(map.latLngToContainerPoint(marker.getLatLng()).subtract([0, LIFT_PX]))
+    navigator.vibrate?.(8)
+    onMove(latlng)
+  })
+}
+
+export function destinationPopupHtml(name?: string): string {
+  return `<strong>Destination</strong>${name ? `<br>${escapeHtml(name)}` : ""}`
+}
+
 // Rider and destination markers live apart from the trip so they show even without a route.
 export function renderEndpoints(
   group: L.LayerGroup,
   origin: { lat: number; lng: number } | null,
   destination: { lat: number; lng: number; name?: string } | null,
-): void {
+  options: EndpointOptions,
+): L.Marker | null {
   group.clearLayers()
+  let destinationMarker: L.Marker | null = null
 
   if (origin) {
-    group.addLayer(
-      L.marker([origin.lat, origin.lng], { icon: dotIcon(ORIGIN_COLOR, 12, 3), title: "You are here" }).bindPopup("You are here"),
-    )
+    let ring: L.Circle | null = null
+    if (!options.originIsManual && options.accuracyM != null && options.accuracyM <= MAX_ACCURACY_RING_M) {
+      ring = L.circle([origin.lat, origin.lng], {
+        radius: options.accuracyM,
+        color: ORIGIN_COLOR,
+        weight: 1,
+        opacity: 0.35,
+        fillColor: ORIGIN_COLOR,
+        fillOpacity: 0.1,
+        interactive: false,
+      })
+      group.addLayer(ring)
+    }
+    const label = options.originIsManual ? "Your start. Drag to move it." : "You are here. Drag to start somewhere else."
+    const marker = L.marker([origin.lat, origin.lng], {
+      icon: options.originIsManual ? originIcon(START_COLOR, 18) : originIcon(ORIGIN_COLOR, 16),
+      title: label,
+      alt: label,
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 500,
+    }).bindPopup(options.originIsManual ? "Your start" : "You are here")
+    makeDraggable(options.map, marker, options.onMoveOrigin, () => ring?.remove())
+    group.addLayer(marker)
   }
 
   if (destination) {
-    const name = destination.name ? `<br>${escapeHtml(destination.name)}` : ""
-    group.addLayer(
-      L.marker([destination.lat, destination.lng], { icon: pinIcon(DESTINATION_COLOR), title: "Destination" }).bindPopup(
-        `<strong>Destination</strong>${name}`,
-      ),
-    )
+    const marker = L.marker([destination.lat, destination.lng], {
+      icon: pinIcon(DESTINATION_COLOR),
+      title: "Destination. Drag to move it.",
+      alt: "Destination",
+      draggable: true,
+      autoPan: true,
+      zIndexOffset: 600,
+    }).bindPopup(destinationPopupHtml(destination.name))
+    makeDraggable(options.map, marker, options.onMoveDestination)
+    group.addLayer(marker)
+    destinationMarker = marker
   }
+  return destinationMarker
 }

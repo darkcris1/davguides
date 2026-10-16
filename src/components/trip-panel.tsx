@@ -1,7 +1,8 @@
 "use client"
 
 import { useId, useMemo, useState } from "react"
-import { ChevronDown, LocateFixed, Settings2, TriangleAlert } from "lucide-react"
+import { ChevronDown, LocateFixed, Settings2, Share2, TriangleAlert } from "lucide-react"
+import LocationHelp from "@/components/location-help"
 import { CONTEXT_COLOR, TRICYCLE_COLOR, jeepneyColor } from "@/lib/leg-colors"
 import { formatDistance, formatDuration } from "@/lib/geo"
 import {
@@ -34,6 +35,13 @@ export interface TripPanelProps {
   fareIsDefault: boolean
   /** Phone sheet is folded down to the chosen trip only. */
   collapsed: boolean
+  /** The rider set the start by hand, so GPS state doesn't block planning. */
+  originIsManual: boolean
+  /** Fastest by planner estimate, so the badge doesn't hop as street paths load. */
+  fastestId: string | null
+  onShare: () => void
+  /** Short confirmation after sharing, such as "Link copied". */
+  shareStatus: string
 }
 
 // Above this the fix is likely IP-based, so boarding points may be off.
@@ -320,9 +328,9 @@ function Notice({ title, children, action }: { title: string; children: React.Re
 }
 
 export default function TripPanel(props: TripPanelProps) {
-  const { destination, locationStatus, locationError, accuracyM, onRetryLocation, routesReady, trips, activeIndex, onSelect, fare, collapsed } = props
+  const { destination, locationError, accuracyM, onRetryLocation, routesReady, trips, activeIndex, onSelect, fare, collapsed, originIsManual, fastestId, onShare, shareStatus } = props
+  const locationStatus = originIsManual ? "ready" : props.locationStatus
   const fares = useMemo(() => trips.map((trip) => planFarePhp(trip, fare)), [trips, fare])
-  const fastest = trips.length > 0 ? Math.min(...trips.map((t) => t.totalDurationMin)) : 0
   const place = destination ? shortPlaceName(destination.name) : ""
 
   const retry = (
@@ -339,7 +347,7 @@ export default function TripPanel(props: TripPanelProps) {
   if (!destination) {
     return (
       <Notice title="Where are you headed?">
-        <p>Search any place in Davao City. You&apos;ll see which jeepney to ride from where you are, where to get on and off, and the fare.</p>
+        <p>Search any place in Davao City, or long-press the map to drop a pin. You&apos;ll see which jeepney to ride, where to get on and off, and the fare.</p>
       </Notice>
     )
   }
@@ -347,7 +355,10 @@ export default function TripPanel(props: TripPanelProps) {
   if (locationStatus === "error") {
     return (
       <Notice title="Your location is needed" action={retry}>
-        <p>Routes start from where you are. {locationError}</p>
+        <p>Routes start from where you are. {locationError} Or long-press the map to set your start.</p>
+        <div className="mt-3">
+          <LocationHelp defaultOpen />
+        </div>
       </Notice>
     )
   }
@@ -371,7 +382,7 @@ export default function TripPanel(props: TripPanelProps) {
     )
   }
 
-  const rough = accuracyM != null && accuracyM > ROUGH_ACCURACY_M
+  const rough = !originIsManual && accuracyM != null && accuracyM > ROUGH_ACCURACY_M
 
   return (
     <div className="space-y-3">
@@ -385,6 +396,11 @@ export default function TripPanel(props: TripPanelProps) {
             <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
             Your location is approximate (±{formatDistance(accuracyM / 1000)}), so boarding points may be off.
           </p>
+        )}
+        {rough && (
+          <div className="mt-2">
+            <LocationHelp />
+          </div>
         )}
       </div>
 
@@ -416,7 +432,7 @@ export default function TripPanel(props: TripPanelProps) {
                       </span>}
                   </span>
                   <span className="ml-auto flex gap-1.5">
-                    {trips.length > 1 && trip.totalDurationMin === fastest && (
+                    {trip.id === fastestId && (
                       <span className="rounded-full bg-[var(--dg-navy)] px-2 py-0.5 text-xs font-medium text-white">Fastest</span>
                     )}
                     <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-700">{planBadge(trip)}</span>
@@ -430,6 +446,19 @@ export default function TripPanel(props: TripPanelProps) {
               {isActive && (
                 <div className={cn(collapsed && "max-md:hidden")}>
                   <TripDetails trip={trip} fare={fare} total={fares[index]} />
+                  <div className="flex items-center gap-3 border-t border-slate-200 px-3 py-1">
+                    <button
+                      type="button"
+                      onClick={onShare}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full px-2 text-sm font-medium text-[var(--dg-navy)] hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--dg-navy)]/40"
+                    >
+                      <Share2 className="size-4" aria-hidden />
+                      Share this trip
+                    </button>
+                    <span role="status" aria-live="polite" className="text-xs text-slate-600">
+                      {shareStatus}
+                    </span>
+                  </div>
                 </div>
               )}
             </li>

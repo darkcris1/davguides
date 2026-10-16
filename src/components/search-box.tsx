@@ -1,19 +1,47 @@
 "use client"
 
 import { useEffect, useId, useRef, useState } from "react"
-import { Loader2, MapPin, Search, X } from "lucide-react"
+import { Clock, Loader2, MapPin, Search, X } from "lucide-react"
 import { searchPlaces, type PlaceResult } from "@/lib/nominatim"
 import type { Location } from "@/commons/models/maps"
 import { cn, shortPlaceName } from "@/lib/utils"
 
 interface SearchBoxProps {
+  /** Current destination, so pins dropped on the map show their name here. */
+  value: Location | null
   onSelect: (location: Location | null) => void
+  recent: Location[]
 }
+
+interface Option {
+  key: string
+  place: Location
+  title: string
+  detail: string
+  recent: boolean
+}
+
+const toOption = (place: PlaceResult): Option => ({
+  key: String(place.id),
+  place: { lat: place.lat, lng: place.lng, name: place.name },
+  title: shortPlaceName(place.name),
+  detail: place.detail,
+  recent: false,
+})
+
+const recentOption = (place: Location, i: number): Option => ({
+  key: `recent-${i}`,
+  place,
+  title: shortPlaceName(place.name),
+  detail: place.name.split(",").slice(1).join(",").trim(),
+  recent: true,
+})
 
 type Status = { kind: "idle" } | { kind: "searching" } | { kind: "results"; count: number } | { kind: "empty"; query: string } | { kind: "error"; message: string }
 
-export default function SearchBox({ onSelect }: SearchBoxProps) {
-  const [query, setQuery] = useState("")
+export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
+  const [query, setQuery] = useState(value ? shortPlaceName(value.name) : "")
+  const [syncedValue, setSyncedValue] = useState(value)
   const [results, setResults] = useState<PlaceResult[]>([])
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
@@ -23,6 +51,17 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
   const optionId = (i: number) => `${listId}-opt-${i}`
+
+  // Follow outside changes, such as a pin dropped or dragged on the map.
+  if (syncedValue !== value) {
+    setSyncedValue(value)
+    // A late name for the same spot only fills the box if the rider hasn't started typing.
+    const renamedOnly = value && syncedValue && value.lat === syncedValue.lat && value.lng === syncedValue.lng
+    const untouched = query === (syncedValue ? shortPlaceName(syncedValue.name) : "")
+    if (!renamedOnly || untouched) setQuery(value ? shortPlaceName(value.name) : "")
+  }
+
+  const options: Option[] = results.length > 0 ? results.map(toOption) : query === "" ? recent.map(recentOption) : []
 
   useEffect(() => {
     const close = (event: PointerEvent) => {
@@ -35,8 +74,9 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
     }
   }, [])
 
-  const choose = (place: PlaceResult) => {
-    onSelect({ lat: place.lat, lng: place.lng, name: place.name })
+  const choose = (place: Location) => {
+    onSelect(place)
+    setSyncedValue(place)
     setQuery(shortPlaceName(place.name))
     setOpen(false)
     setActive(-1)
@@ -57,7 +97,7 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
       if (controller.signal.aborted) return
       setResults(places)
       if (places.length === 1) {
-        choose(places[0])
+        choose(toOption(places[0]).place)
         setStatus({ kind: "results", count: 1 })
         return
       }
@@ -73,17 +113,17 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
   }
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" && results.length > 0) {
+    if (event.key === "ArrowDown" && options.length > 0) {
       event.preventDefault()
       setOpen(true)
-      setActive((i) => (i + 1) % results.length)
-    } else if (event.key === "ArrowUp" && results.length > 0) {
+      setActive((i) => (i + 1) % options.length)
+    } else if (event.key === "ArrowUp" && options.length > 0) {
       event.preventDefault()
       setOpen(true)
-      setActive((i) => (i <= 0 ? results.length - 1 : i - 1))
-    } else if (event.key === "Enter" && open && active >= 0) {
+      setActive((i) => (i <= 0 ? options.length - 1 : i - 1))
+    } else if (event.key === "Enter" && open && active >= 0 && options[active]) {
       event.preventDefault()
-      choose(results[active])
+      choose(options[active].place)
     } else if (event.key === "Escape") {
       setOpen(false)
     }
@@ -93,10 +133,11 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
     abortRef.current?.abort()
     setQuery("")
     setResults([])
-    setOpen(false)
     setStatus({ kind: "idle" })
+    setSyncedValue(null)
     onSelect(null)
     inputRef.current?.focus()
+    setOpen(recent.length > 0)
   }
 
   const searching = status.kind === "searching"
@@ -144,11 +185,11 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
           onChange={(e) => {
             setQuery(e.target.value)
             setResults([])
-            setOpen(false)
+            setOpen(e.target.value === "" && recent.length > 0)
             setActive(-1)
           }}
           onKeyDown={onKeyDown}
-          onFocus={() => results.length > 1 && setOpen(true)}
+          onFocus={() => (results.length > 1 || (query === "" && recent.length > 0)) && setOpen(true)}
           className="h-full min-w-0 flex-1 bg-transparent px-3 text-base text-[var(--dg-ink)] placeholder:text-slate-500 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
         />
         {query && !searching && (
@@ -170,27 +211,32 @@ export default function SearchBox({ onSelect }: SearchBoxProps) {
         {message}
       </p>
 
-      {open && results.length > 0 && (
+      {open && options.length > 0 && (
         <ul
           id={listId}
           role="listbox"
-          aria-label="Places"
+          aria-label={results.length > 0 ? "Places" : "Recent places"}
           className="absolute inset-x-0 top-14 z-30 max-h-[min(60dvh,24rem)] overflow-y-auto rounded-2xl bg-white py-1 shadow-xl ring-1 ring-black/10"
         >
-          {results.map((place, i) => (
+          {results.length === 0 && <li role="presentation" className="px-4 pb-1 pt-2 text-xs font-medium uppercase tracking-wider text-slate-500">Recent</li>}
+          {options.map((option, i) => (
             <li
-              key={place.id}
+              key={option.key}
               id={optionId(i)}
               role="option"
               aria-selected={i === active}
               onPointerEnter={() => setActive(i)}
-              onClick={() => choose(place)}
+              onClick={() => choose(option.place)}
               className={cn("flex min-h-12 cursor-pointer items-start gap-3 px-4 py-2.5", i === active && "bg-slate-100")}
             >
-              <MapPin className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden />
+              {option.recent ? (
+                <Clock className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden />
+              ) : (
+                <MapPin className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden />
+              )}
               <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-[var(--dg-ink)]">{shortPlaceName(place.name)}</span>
-                <span className="block truncate text-xs text-slate-600">{place.detail}</span>
+                <span className="block truncate text-sm font-medium text-[var(--dg-ink)]">{option.title}</span>
+                {option.detail && <span className="block truncate text-xs text-slate-600">{option.detail}</span>}
               </span>
             </li>
           ))}
