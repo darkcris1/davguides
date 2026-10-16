@@ -100,7 +100,6 @@ export default function AppShell() {
     if (fromUrl.to && fromUrl.tripId) setPendingTripId(fromUrl.tripId)
     if (fromUrl.to) setDestination(fromUrl.to)
     if (fromUrl.from) setOriginOverride(fromUrl.from)
-    if (fromUrl.to) setSnap("half")
   }
 
   const origin: Point | null = originOverride ?? location.location

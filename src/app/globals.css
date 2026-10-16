@@ -184,3 +184,46 @@
 .dg-sheet {
   will-change: transform;
 }
+
+/* Map credits stay one tap away on phones instead of covering the map. */
+.dg-attrib-toggle {
+  display: none;
+}
+@media (max-width: 767px) {
+  .dg-map .dg-attrib-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: 0 4px 4px 0;
+    position: relative;
+    z-index: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--dg-ink);
+    font: italic 700 14px/1 Georgia, serif;
+  }
+  .dg-map .dg-attrib-toggle::before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    z-index: -1;
+  }
+  .dg-map .dg-attrib:not(.dg-attrib-open) {
+    display: none;
+  }
+  .dg-map .dg-attrib {
+    max-width: calc(100vw - 72px);
+    border-radius: 8px;
+    margin-bottom: 4px;
+  }
+}
+.dg-map .dg-attrib-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--dg-navy) 60%, transparent);
+  outline-offset: -8px;
+}

@@ -122,6 +122,24 @@ export default function MapComponent({
     const map = L.map(containerRef.current, { zoomControl: false }).setView(DAVAO_CENTER, 13)
     maplibreGL({ style: MAP_STYLE_URL }).addTo(map)
 
+    // On phones the credits show at load, then fold behind an info button once the rider touches the map.
+    const attribution = map.attributionControl.getContainer()
+    attribution?.classList.add("dg-attrib", "dg-attrib-open")
+    const creditsButton = L.DomUtil.create("button", "dg-attrib-toggle")
+    creditsButton.type = "button"
+    creditsButton.textContent = "i"
+    creditsButton.setAttribute("aria-label", "Map credits")
+    creditsButton.setAttribute("aria-expanded", "true")
+    const setCredits = (open: boolean) => {
+      attribution?.classList.toggle("dg-attrib-open", open)
+      creditsButton.setAttribute("aria-expanded", String(open))
+    }
+    L.DomEvent.disableClickPropagation(creditsButton)
+    L.DomEvent.on(creditsButton, "click", () => setCredits(!attribution?.classList.contains("dg-attrib-open")))
+    const CreditsControl = L.Control.extend({ onAdd: () => creditsButton })
+    new CreditsControl({ position: "bottomright" }).addTo(map)
+    map.on("movestart", () => setCredits(false))
+
     mapRef.current = map
     tripLayerRef.current = L.layerGroup().addTo(map)
     endpointLayerRef.current = L.layerGroup().addTo(map)
@@ -147,7 +165,9 @@ export default function MapComponent({
       pointers.add(event.pointerId)
       cancel()
       if (pointers.size > 1 || event.pointerType === "mouse") return
-      if ((event.target as HTMLElement).closest(".leaflet-marker-icon, .leaflet-popup, .leaflet-control")) return
+      if ((event.target as HTMLElement).closest(".leaflet-control")) return
+      setCredits(false)
+      if ((event.target as HTMLElement).closest(".leaflet-marker-icon, .leaflet-popup")) return
       start = { x: event.clientX, y: event.clientY }
       const point = map.mouseEventToLatLng(event)
       timer = setTimeout(() => {
