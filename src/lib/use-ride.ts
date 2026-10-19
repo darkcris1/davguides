@@ -51,23 +51,23 @@ const vibrate = (pattern: number | number[]) => navigator.vibrate?.(pattern)
 
 export function useRide() {
   const [ride, setRide] = useState<RideState | null>(null)
-  const stepRef = useRef(0)
+  const lastRef = useRef<{ step: number; doneKm: number } | null>(null)
   const alertedRef = useRef<{ step: number; soon: boolean; arrived: boolean }>({ step: 0, soon: false, arrived: false })
   const trip = ride?.trip ?? null
 
   useEffect(() => {
     if (!trip) return
-    stepRef.current = 0
+    lastRef.current = null
     alertedRef.current = { step: 0, soon: false, arrived: false }
 
     const id = navigator.geolocation.watchPosition(
       ({ coords }) => {
         const position = { lat: coords.latitude, lng: coords.longitude }
-        const progress = rideProgress(trip, position, stepRef.current)
+        const progress = rideProgress(trip, position, lastRef.current)
         // Once arrived, stay arrived even if GPS drifts.
         const alerted = alertedRef.current
         if (alerted.arrived) progress.arrived = true
-        stepRef.current = progress.step
+        lastRef.current = { step: progress.step, doneKm: progress.doneKm }
 
         if (progress.arrived && !alerted.arrived) vibrate([200, 100, 200])
         else if (progress.alightSoon && !(alerted.soon && alerted.step === progress.step)) vibrate([300, 150, 300, 150, 300])
@@ -93,7 +93,7 @@ export function useRide() {
   useWakeLock(trip != null)
 
   const start = useCallback((next: TripPlan, destinationName: string, position: { lat: number; lng: number } | null, accuracyM: number | null) => {
-    setRide({ trip: next, destinationName, position, accuracyM, progress: position ? rideProgress(next, position, 0) : null, error: null })
+    setRide({ trip: next, destinationName, position, accuracyM, progress: position ? rideProgress(next, position, null) : null, error: null })
   }, [])
   const stop = useCallback(() => setRide(null), [])
 

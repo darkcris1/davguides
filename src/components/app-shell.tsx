@@ -432,7 +432,7 @@ export default function AppShell() {
       </div>
       {ridePrompt && !ride && (
         <PreciseLocationPrompt
-          reason={location.status === "error" ? "denied" : "approximate"}
+          reason={location.status === "error" ? (location.errorKind ?? "unavailable") : "approximate"}
           accuracyM={location.accuracyM}
           checking={location.status === "pending" || location.refreshing}
           requiredM={PRECISE_ACCURACY_M}

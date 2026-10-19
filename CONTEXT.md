@@ -162,6 +162,8 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
   - A leg ends within 40 m of its end. Being on a later leg's line, 100 m past its start, skips ahead, so boarding early never leaves the guide stuck.
   - On a jeepney leg, within 50 m of the stop means waiting. Within 250 m of the drop-off shows a "Get off soon" alert and vibrates once.
   - Arrival sticks, so GPS drift at the destination doesn't undo it.
+  - Progress is forward-only: each fix snaps onto the leg within 100 m behind and 1.5 km ahead of the last one, so a leg that runs out and back on one road can't jump to the return lane. Leaving the stop ends "waiting" for good.
+  - A failed fix says why: blocked, no signal, or no browser support.
 - **Map.** Follows the rider, centred in the part the sheet leaves visible. Panning pauses follow; Locate resumes it.
 
 ## Known limits
