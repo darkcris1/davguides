@@ -14,6 +14,8 @@ export const THRESHOLDS = {
   TRICYCLE_TRIGGER_KM: 0.5,
   /** Hailing and haggling. */
   TRICYCLE_WAIT_MIN: 3,
+  /** Trips up to this straight-line length also get a door-to-door tricycle plan. */
+  TRICYCLE_DIRECT_MAX_KM: 3,
   /** Keeps a plan from winning only because it assumed a long walk. */
   LONG_WALK_PENALTY_MIN_PER_KM: 6,
 
@@ -151,7 +153,10 @@ export interface FareConfig {
   jeepneyBaseKm: number
   /** Charged per whole km past the base distance. */
   jeepneyPerKmPhp: number
+  /** Base fare covering the first `tricycleBaseKm`. */
   tricycleBasePhp: number
+  tricycleBaseKm: number
+  /** Charged per whole km past the base distance. */
   tricyclePerKmPhp: number
   /** Fares are rounded up to a multiple of this. */
   roundToPhp: number
@@ -163,12 +168,14 @@ export interface FareConfig {
 export const CONCESSION_DISCOUNT_PCT = 20
 
 // LTFRB traditional jeepney fare from 28 Sept 2026: ₱14 for the first 4 km, ₱2 per km after.
+// Davao MTH Board Resolution No. 01-2020 tricycle fare: ₱10 for the first 4 km, ₱1 per km after.
 export const DEFAULT_FARE: FareConfig = {
   jeepneyBasePhp: 14,
   jeepneyBaseKm: 4,
   jeepneyPerKmPhp: 2,
-  tricycleBasePhp: 20,
-  tricyclePerKmPhp: 10,
+  tricycleBasePhp: 10,
+  tricycleBaseKm: 4,
+  tricyclePerKmPhp: 1,
   roundToPhp: 0.25,
   discountPct: 0,
 }
@@ -191,9 +198,10 @@ export function jeepneyFarePhp(rideKm: number, f: FareConfig = DEFAULT_FARE): nu
   return applyDiscount(roundUpTo(f.jeepneyBasePhp + excessKm * f.jeepneyPerKmPhp, f.roundToPhp), f)
 }
 
-/** Tricycle pricing is informal — always label this an estimate. */
+// Regulated per-passenger fare; drivers often ask more for a special trip, so label it an estimate.
 export function tricycleFarePhp(distKm: number, f: FareConfig = DEFAULT_FARE): number {
-  return applyDiscount(roundUpTo(f.tricycleBasePhp + Math.max(0, distKm) * f.tricyclePerKmPhp, f.roundToPhp), f)
+  const excessKm = Math.max(0, Math.ceil(distKm - f.tricycleBaseKm))
+  return applyDiscount(roundUpTo(f.tricycleBasePhp + excessKm * f.tricyclePerKmPhp, f.roundToPhp), f)
 }
 
 export function formatPhp(amount: number): string {

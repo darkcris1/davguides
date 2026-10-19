@@ -45,7 +45,9 @@ Run `npx tsc --noEmit && npm run lint && npm run build` before calling work done
 | `src/lib/transport-config.ts` | Every planner threshold, plus fare math |
 | `src/lib/trip-render.ts` | Draws a `TripPlan` onto Leaflet layers |
 | `src/lib/geo.ts` | Pure geometry and formatting helpers |
-| `src/lib/nominatim.ts` | Place search client, throttled to 1 request/second |
+| `src/lib/nominatim.ts` | Place search on submit, throttled to 1 request/second |
+| `src/lib/photon.ts` | Search-as-you-type suggestions and pin naming, with Nominatim fallback |
+| `src/lib/routed-trip.ts` | Applies street walk paths to the active trip and moves stops to where they meet the route |
 | `src/lib/use-*.ts` | Hooks for geolocation, lazy route data and fare settings |
 | `src/lib/site.ts` | Site name, URL, description and brand colours |
 | `src/lib/routes.ts` | About 800 KB of route GeoJSON. Never import it statically from client code. |
@@ -80,7 +82,7 @@ Run `npx tsc --noEmit && npm run lint && npm run build` before calling work done
 - **Do** keep planner tunables in `THRESHOLDS`. Fares are display-only and must never feed the optimizer.
 - **Do** dedupe route candidates by arc separation, never by ground distance. CONTEXT.md explains why.
 - **Don't** add a tile or geocoding provider that needs an API key. CARTO was dropped for that reason.
-- **Don't** call Nominatim on each keystroke or more than once a second. Their usage policy forbids it.
+- **Don't** call Nominatim on each keystroke or more than once a second. Their usage policy forbids it. Typing suggestions go to Photon.
 - **Don't** let `public/` and `src/app/` both define the same file name. For example, `icon.svg` in both places makes Next return a 500.
 
 ## Verifying UI changes

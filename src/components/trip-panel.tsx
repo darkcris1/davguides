@@ -166,13 +166,18 @@ function TripDetails({ trip, fare, total }: { trip: TripPlan; fare: FareConfig; 
       </ol>
 
       <p className="mt-3 text-xs text-slate-600">
-        Ride {formatDistance(trip.totalRideKm)}
-        {trip.totalWalkKm > 0 && ` · walk ${formatDistance(trip.totalWalkKm)}`}
-        {trip.totalTricycleKm > 0 && ` · tricycle ${formatDistance(trip.totalTricycleKm)}`}
-        {` · ${formatPhp(total)} estimated`}
+        {[
+          trip.totalRideKm > 0 && `ride ${formatDistance(trip.totalRideKm)}`,
+          trip.totalWalkKm > 0 && `walk ${formatDistance(trip.totalWalkKm)}`,
+          trip.totalTricycleKm > 0 && `tricycle ${formatDistance(trip.totalTricycleKm)}`,
+          `${formatPhp(total)} estimated`,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+          .replace(/^./, (c) => c.toUpperCase())}
       </p>
 
-      {(trip.needsTricycleFirstMile || trip.needsTricycleLastMile || trip.needsTricycleTransfer) && (
+      {trip.totalRideKm > 0 && (trip.needsTricycleFirstMile || trip.needsTricycleLastMile || trip.needsTricycleTransfer) && (
         <p className="mt-2 flex gap-1.5 text-xs text-amber-900">
           <span aria-hidden>🛺</span>
           <span>
@@ -266,12 +271,13 @@ function FareSettings({ fare, onFareChange, onFareReset, fareIsDefault }: Pick<T
 
       <div id={regionId} hidden={!open} className="space-y-2 px-1 pb-2 pt-1">
         <FareField label="Jeepney base fare" value={fare.jeepneyBasePhp} step={0.5} suffix="₱" onCommit={set("jeepneyBasePhp")} />
-        <FareField label="Base fare covers" value={fare.jeepneyBaseKm} step={0.5} suffix="km" positive onCommit={set("jeepneyBaseKm")} />
-        <FareField label="Each extra km" value={fare.jeepneyPerKmPhp} step={0.1} suffix="₱" onCommit={set("jeepneyPerKmPhp")} />
-        <FareField label="Tricycle base" value={fare.tricycleBasePhp} step={1} suffix="₱" onCommit={set("tricycleBasePhp")} />
-        <FareField label="Tricycle per km" value={fare.tricyclePerKmPhp} step={1} suffix="₱" onCommit={set("tricyclePerKmPhp")} />
+        <FareField label="Jeepney base covers" value={fare.jeepneyBaseKm} step={0.5} suffix="km" positive onCommit={set("jeepneyBaseKm")} />
+        <FareField label="Jeepney extra km" value={fare.jeepneyPerKmPhp} step={0.1} suffix="₱" onCommit={set("jeepneyPerKmPhp")} />
+        <FareField label="Tricycle base fare" value={fare.tricycleBasePhp} step={1} suffix="₱" onCommit={set("tricycleBasePhp")} />
+        <FareField label="Tricycle base covers" value={fare.tricycleBaseKm} step={0.5} suffix="km" positive onCommit={set("tricycleBaseKm")} />
+        <FareField label="Tricycle extra km" value={fare.tricyclePerKmPhp} step={0.5} suffix="₱" onCommit={set("tricyclePerKmPhp")} />
         <div className="flex items-center justify-between gap-3 pt-1">
-          <p className="text-xs text-slate-600">Defaults follow the LTFRB fare from 28 Sept 2026. Estimates only.</p>
+          <p className="text-xs text-slate-600">Defaults follow the LTFRB jeepney fare from 28 Sept 2026 and Davao’s 2020 tricycle fare. Estimates only.</p>
           <button
             type="button"
             onClick={onFareReset}

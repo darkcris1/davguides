@@ -17,6 +17,7 @@ function sanitize(raw: unknown): FareConfig {
 
   // A zero base distance or rounding step would make every fare nonsense.
   if (merged.jeepneyBaseKm <= 0) merged.jeepneyBaseKm = DEFAULT_FARE.jeepneyBaseKm
+  if (merged.tricycleBaseKm <= 0) merged.tricycleBaseKm = DEFAULT_FARE.tricycleBaseKm
   if (merged.roundToPhp <= 0) merged.roundToPhp = DEFAULT_FARE.roundToPhp
   merged.discountPct = Math.min(100, merged.discountPct)
 

@@ -9,7 +9,7 @@ import TripPanel from "@/components/trip-panel"
 import type { MapInsets } from "@/components/map-component"
 import { planTrips } from "@/lib/route-engine"
 import { isPeakHour } from "@/lib/loading-hubs"
-import { reversePlace } from "@/lib/nominatim"
+import { reversePlace } from "@/lib/photon"
 import { withRoutedGaps } from "@/lib/routed-trip"
 import { DROPPED_PIN, PINNED_START, buildTripUrl, parseTripUrl } from "@/lib/trip-url"
 import { useBottomSheet, type SheetSnap } from "@/lib/use-bottom-sheet"
@@ -129,7 +129,8 @@ export default function AppShell() {
 
   const activeTrip = trips[activeIndex] ?? null
   const walkPaths = useWalkPaths(activeTrip)
-  const routedTrip = useMemo(() => (activeTrip ? withRoutedGaps(activeTrip, walkPaths) : null), [activeTrip, walkPaths])
+  const routeIndex = routeData?.index ?? null
+  const routedTrip = useMemo(() => (activeTrip ? withRoutedGaps(activeTrip, walkPaths, routeIndex) : null), [activeTrip, walkPaths, routeIndex])
   // Badge from planner times, since only the active card gets street-path times.
   const fastestId = trips.length > 1 ? trips.reduce((best, t) => (t.totalDurationMin < best.totalDurationMin ? t : best)).id : null
   const shownTrips = useMemo(() => trips.map((trip, i) => (i === activeIndex && routedTrip ? routedTrip : trip)), [trips, activeIndex, routedTrip])

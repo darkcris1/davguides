@@ -107,6 +107,10 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
   - Plans that cost more than 20 min above the best plan are dropped.
   - A plan that needs a tricycle is shown only when it beats the fastest walkable plan by at least 10 min.
   - From R. Castillo to Sasa, this removes "Panacan via Cabaguio" (a 1.2 km tricycle ride for 2 min saved) and "Lasang via Buhangin" (50 min).
+- **Tricycle only.** Trips up to 3 km (`TRICYCLE_DIRECT_MAX_KM`) also get a door-to-door tricycle plan.
+  - It follows the tricycle rule above: it shows only when no walk-to-jeep plan exists, or it beats the best one by 10 min. So a jeep that serves the short way stays the answer, and one that loops the long way loses.
+  - Jeep plans that still need a tricycle leg and are slower than the tricycle alone are dropped, because they cost more and take longer.
+  - It never counts toward the early stop, so the radius search runs as before.
 - **Loading hubs** (`lib/loading-hubs.ts`).
   - **The problem.** Outbound jeeps fill up where they load downtown. At rush hour (5–8 AM and 5–8 PM Davao time), riders who try to board further out are left waiting.
   - **Transfer penalty.** At rush hour, transferring onto a hub-served route more than 500 m past its hub, in the outbound direction, adds a 15 min seat wait.
@@ -120,7 +124,7 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
     - "Acacia" means the downtown junction, not Barangay Acacia in Buhangin.
 - **Fares.**
   - Jeepney fares follow the LTFRB traditional-jeepney fare in force from 28 Sept 2026: ₱14 for the first 4 km, then ₱2 for each whole extra km. Conductors charge per whole km band.
-  - Tricycle fares are an informal estimate: ₱20 plus ₱10 per km.
+  - Tricycle fares follow Davao MTH Board Resolution No. 01-2020: ₱10 for the first 4 km, then ₱1 for each whole extra km, per passenger. Drivers often ask more for a special trip, so the app labels it an estimate.
   - Every fare rounds up to the nearest ₱0.25.
   - **Discount.** The "Student, senior or PWD" switch takes 20% off the full fare, then rounds up to the nearest 25 centavos, so ₱14 becomes ₱11.25. Students are covered by RA 11314, seniors by RA 9994 and PWDs by RA 7277. Fare Settings → Reset keeps the discount choice.
 
@@ -129,6 +133,7 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 - **Ridden arc only.** Only the ridden arc is drawn solid. The rest of the loop is a faint context line, because a fully drawn ring tells the rider nothing about direction.
 - **Arrows.** Direction arrows are spaced by distance (0.8 km), not by vertex count, so sparse and dense routes look alike. Headings use the true compass bearing.
 - **Escaping.** Every string that goes into Leaflet popup, tooltip or divIcon HTML passes through `escapeHtml`. Place names come from OSM, which anyone can edit.
+- **Street paths move stops.** When a walk's street path reaches the jeep's road before the planned stop, the stop moves to where the path first meets the route (or last leaves it, when getting off). Only points within 30 m of the route and within the walk's length along its arc count, so the return leg on the same street never matches. A move that changes terminals crossed or direction, or leaves a ride under 400 m, is skipped. Display only, like the street paths.
 - **Endpoint markers.** The rider and destination markers live on their own layer. They show even when there is no trip.
 
 ## External services
@@ -136,10 +141,11 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 | Service | Use | Constraints |
 | --- | --- | --- |
 | [OpenFreeMap](https://openfreemap.org) | Vector basemap, style `liberty`, rendered through `@maplibre/maplibre-gl-leaflet` | No API key. Attribution comes from the style. Import the plugin from the `/leaflet-maplibre-gl` subpath, because the package's ESM `dist/` is missing. |
-| [Nominatim](https://nominatim.org/release-docs/latest/api/Search/) | Place search | At most 1 request per second, search on submit only (no autocomplete), results bounded to a Davao viewbox and filtered to "Davao City". |
+| [Nominatim](https://nominatim.org/release-docs/latest/api/Search/) | Place search on submit | At most 1 request per second, search on submit only (no autocomplete), results bounded to a Davao viewbox and filtered to "Davao City". |
+| [Photon](https://photon.komoot.io) | Suggestions while typing; fallback when Nominatim search fails | No API key, fair use. 3+ characters and a 300 ms typing pause, earlier requests aborted, cached per query. Bounded to the same box and filtered to `city: "Davao City"`. |
 | Browser Geolocation | Trip origin | Fixes worse than 300 m accuracy get a warning. Moves under 20 m are ignored, so GPS jitter doesn't replan. |
 | [FOSSGIS OSRM foot](https://routing.openstreetmap.de/) | Street paths for the active trip's walk and tricycle legs | No API key, fair use only: 1 request/second, active trip only, cached per leg. On failure the leg stays a straight line. Distances and times it returns are display-only, like fares. |
-| Nominatim reverse | Names a pin dropped or dragged on the map | Same 1 request/second budget as search; called on drop or drag end, never during a drag. |
+| Photon reverse, then Nominatim reverse | Names a pin dropped or dragged on the map | Called on drop or drag end, never during a drag. Nominatim only runs when Photon fails, under the same 1 request/second budget as search. |
 | Vercel Web Analytics | Visitor counts | The query string is stripped in `beforeSend`, because trip links carry riders' coordinates. |
 
 ## Map interaction and URL

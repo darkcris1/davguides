@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from "react"
 import { Clock, Loader2, MapPin, Search, X } from "lucide-react"
 import { searchPlaces, type PlaceResult } from "@/lib/nominatim"
+import { suggestPlaces } from "@/lib/photon"
 import type { Location } from "@/commons/models/maps"
 import { cn, shortPlaceName } from "@/lib/utils"
 
@@ -22,7 +23,7 @@ interface Option {
 }
 
 const toOption = (place: PlaceResult): Option => ({
-  key: String(place.id),
+  key: place.id,
   place: { lat: place.lat, lng: place.lng, name: place.name },
   title: shortPlaceName(place.name),
   detail: place.detail,
@@ -37,6 +38,10 @@ const recentOption = (place: Location, i: number): Option => ({
   recent: true,
 })
 
+// Suggest after a typing pause, and only once the query says something.
+const SUGGEST_DELAY_MS = 300
+const SUGGEST_MIN_CHARS = 3
+
 type Status = { kind: "idle" } | { kind: "searching" } | { kind: "results"; count: number } | { kind: "empty"; query: string } | { kind: "error"; message: string }
 
 export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
@@ -47,6 +52,7 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
   const [active, setActive] = useState(-1)
   const [status, setStatus] = useState<Status>({ kind: "idle" })
   const abortRef = useRef<AbortController | null>(null)
+  const suggestRef = useRef<{ timer: ReturnType<typeof setTimeout>; controller: AbortController } | null>(null)
   const wrapperRef = useRef<HTMLFormElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
@@ -71,10 +77,41 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
     return () => {
       document.removeEventListener("pointerdown", close)
       abortRef.current?.abort()
+      cancelSuggest()
     }
   }, [])
 
+  function cancelSuggest() {
+    if (!suggestRef.current) return
+    clearTimeout(suggestRef.current.timer)
+    suggestRef.current.controller.abort()
+    suggestRef.current = null
+  }
+
+  const scheduleSuggest = (text: string) => {
+    cancelSuggest()
+    const q = text.trim()
+    if (q.length < SUGGEST_MIN_CHARS) return
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const places = await suggestPlaces(q, controller.signal)
+        if (controller.signal.aborted) return
+        setResults(places)
+        setActive(-1)
+        // Don't pop the list back open if the rider has tapped away.
+        setOpen(places.length > 0 && document.activeElement === inputRef.current)
+        // Silent when nothing matches yet: the rider is still typing.
+        setStatus(places.length > 0 ? { kind: "results", count: places.length } : { kind: "idle" })
+      } catch {
+        // Suggestions are a nicety; submitting still searches.
+      }
+    }, SUGGEST_DELAY_MS)
+    suggestRef.current = { timer, controller }
+  }
+
   const choose = (place: Location) => {
+    cancelSuggest()
     onSelect(place)
     setSyncedValue(place)
     setQuery(shortPlaceName(place.name))
@@ -87,13 +124,18 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
     const q = query.trim()
     if (!q) return
 
+    cancelSuggest()
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
     setStatus({ kind: "searching" })
 
     try {
-      const places = await searchPlaces(q, controller.signal)
+      // Photon steps in when Nominatim is rate limiting or down.
+      const places = await searchPlaces(q, controller.signal).catch((error) => {
+        if (controller.signal.aborted) throw error
+        return suggestPlaces(q, controller.signal)
+      })
       if (controller.signal.aborted) return
       setResults(places)
       if (places.length === 1) {
@@ -130,6 +172,7 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
   }
 
   const clear = () => {
+    cancelSuggest()
     abortRef.current?.abort()
     setQuery("")
     setResults([])
@@ -183,10 +226,14 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
           placeholder="Where to? Try SM Lanang"
           value={query}
           onChange={(e) => {
+            // A new query makes any in-flight search stale.
+            abortRef.current?.abort()
+            if (searching) setStatus({ kind: "idle" })
             setQuery(e.target.value)
             setResults([])
             setOpen(e.target.value === "" && recent.length > 0)
             setActive(-1)
+            scheduleSuggest(e.target.value)
           }}
           onKeyDown={onKeyDown}
           onFocus={() => (results.length > 1 || (query === "" && recent.length > 0)) && setOpen(true)}

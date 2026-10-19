@@ -824,6 +824,7 @@ function dedupePlans(scored: ScoredPlan[], t: Thresholds): ScoredPlan[] {
 // ---------------------------------------------------------------------------
 
 const needsTricycle = (plan: TripPlan) => plan.needsTricycleFirstMile || plan.needsTricycleLastMile || plan.needsTricycleTransfer
+const ridesJeepney = (plan: TripPlan) => plan.legs.some((l) => l.mode === "jeepney")
 
 // Drops far-worse plans, and tricycle detours that barely beat a jeep within walking distance.
 function pruneWeakPlans(plans: ScoredPlan[], t: Thresholds): ScoredPlan[] {
@@ -836,12 +837,28 @@ function pruneWeakPlans(plans: ScoredPlan[], t: Thresholds): ScoredPlan[] {
   const kept = affordable.filter(
     (p) => !needsTricycle(p.plan) || p.plan.totalDurationMin <= bestWalkableMin - t.TRICYCLE_DETOUR_MIN_SAVING_MIN,
   )
-  return kept.length > 0 ? kept : [best]
+  // A jeep trip that still needs a tricycle, yet is slower than the tricycle alone, costs more for nothing.
+  const trikeOnly = kept.find((p) => !ridesJeepney(p.plan))
+  const result = trikeOnly
+    ? kept.filter((p) => p === trikeOnly || !needsTricycle(p.plan) || p.plan.totalDurationMin < trikeOnly.plan.totalDurationMin)
+    : kept
+  return result.length > 0 ? result : [best]
 }
 
 function walkOnlyPlan(origin: LatLng, destination: LatLng, distKm: number, t: Thresholds): TripPlan {
   const leg = gapLeg([origin.lat, origin.lng], [destination.lat, destination.lng], distKm, "your destination", t)
   return finalizePlan([leg], 0, t, [])
+}
+
+// Door to door by tricycle, for short trips where the jeeps only go the long way round.
+function tricycleOnlyPlan(origin: LatLng, destination: LatLng, distKm: number, t: Thresholds): ScoredPlan {
+  const leg = gapLeg([origin.lat, origin.lng], [destination.lat, destination.lng], distKm, "your destination", t)
+  leg.mode = "tricycle"
+  leg.durationMin = tricycleMinutes(distKm, t)
+  leg.recommendedMode = "tricycle"
+  leg.instruction = "Take a tricycle to your destination"
+  const plan = finalizePlan([leg], 0, t, ["No jeepney needed: a tricycle goes straight there."])
+  return { plan, cost: leg.durationMin }
 }
 
 /**
@@ -868,8 +885,8 @@ export function planTrips(
   const index = getRouteIndex(routes)
   // Accumulate across tiers rather than replacing, so a plan found at a tight
   // radius is never lost just because a wider tier had to run.
-  const pool: ScoredPlan[] = []
-  let best: ScoredPlan[] = []
+  const pool: ScoredPlan[] = straightKm <= t.TRICYCLE_DIRECT_MAX_KM ? [tricycleOnlyPlan(origin, destination, straightKm, t)] : []
+  let best: ScoredPlan[] = dedupePlans(pruneWeakPlans(pool, t), t)
 
   for (const radiusKm of t.CANDIDATE_RADIUS_TIERS_KM) {
     const boards = findAccessPoints(index, origin.lat, origin.lng, radiusKm, t)
@@ -905,7 +922,7 @@ export function planTrips(
     // rides end the search before the wider radius exposed the obvious short
     // route sitting metres away.
     const reasonable = best.filter(
-      (p) => p.plan.totalRideKm <= straightKm * t.ACCEPTABLE_DETOUR_RATIO,
+      (p) => ridesJeepney(p.plan) && p.plan.totalRideKm <= straightKm * t.ACCEPTABLE_DETOUR_RATIO,
     ).length
     if (reasonable >= t.MIN_ACCEPTABLE_RESULTS) break
   }

@@ -1,7 +1,7 @@
 import type { Location } from "@/commons/models/maps"
 
 export interface PlaceResult extends Location {
-  id: number
+  id: string
   /** Everything after the first comma of the display name. */
   detail: string
 }
@@ -38,7 +38,7 @@ async function waitTurn(signal: AbortSignal): Promise<void> {
   }
 }
 
-// Nominatim allows one request a second and no search-as-you-type, so callers search on submit only.
+// Nominatim allows one request a second and no search-as-you-type, so this runs on submit only; Photon does suggestions.
 export async function searchPlaces(query: string, signal: AbortSignal): Promise<PlaceResult[]> {
   await waitTurn(signal)
 
@@ -60,7 +60,7 @@ export async function searchPlaces(query: string, signal: AbortSignal): Promise<
     .map((row) => {
       const [first, ...rest] = row.display_name.split(",")
       return {
-        id: row.place_id,
+        id: `nominatim-${row.place_id}`,
         lat: Number.parseFloat(row.lat),
         lng: Number.parseFloat(row.lon),
         name: row.display_name,
