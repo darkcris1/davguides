@@ -48,7 +48,9 @@ Run `npx tsc --noEmit && npm run lint && npm run build` before calling work done
 | `src/lib/nominatim.ts` | Place search on submit, throttled to 1 request/second |
 | `src/lib/photon.ts` | Search-as-you-type suggestions and pin naming, with Nominatim fallback |
 | `src/lib/routed-trip.ts` | Applies street walk paths to the active trip and moves stops to where they meet the route |
-| `src/lib/use-*.ts` | Hooks for geolocation, lazy route data and fare settings |
+| `src/lib/use-*.ts` | Hooks for geolocation, lazy route data, fare settings and the live ride |
+| `src/lib/ride-progress.ts` | Pure step tracker for Start ride: current leg, distance left, get-off alert |
+| `src/components/ride-panel.tsx`, `precise-location-prompt.tsx` | Live ride guide, and the precise-location gate before it |
 | `src/lib/site.ts` | Site name, URL, description and brand colours |
 | `src/lib/routes.ts` | About 800 KB of route GeoJSON. Never import it statically from client code. |
 | `public/` | `logo.svg` (wordmark), `logo-mark.svg`, PWA PNG icons |

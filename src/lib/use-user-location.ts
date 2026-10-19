@@ -13,6 +13,8 @@ export interface UserLocationState {
   error: string | null
   /** Metres; null until the first fix. */
   accuracyM: number | null
+  /** A requested fix is on its way, even while an older one is shown. */
+  refreshing: boolean
   request: () => void
 }
 
@@ -26,6 +28,8 @@ function describeError(error: GeolocationPositionError): string {
 }
 
 const POSITION_OPTIONS: PositionOptions = { enableHighAccuracy: true, timeout: 10_000, maximumAge: 30_000 }
+// A tap means the rider wants a new reading, such as after turning on precise location.
+const FRESH_OPTIONS: PositionOptions = { ...POSITION_OPTIONS, maximumAge: 0 }
 
 const UNSUPPORTED_ERROR = "This browser can't share your location."
 const noSubscribe = () => () => {}
@@ -35,11 +39,12 @@ export function useUserLocation(): UserLocationState {
   const [status, setStatus] = useState<LocationStatus>("pending")
   const [error, setError] = useState<string | null>(null)
   const [accuracyM, setAccuracyM] = useState<number | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const locationRef = useRef<UserLocation | null>(null)
   const supported = useSyncExternalStore(noSubscribe, () => typeof navigator.geolocation?.getCurrentPosition === "function", () => true)
 
   // Only sets state from the geolocation callbacks, never synchronously.
-  const locate = useCallback(() => {
+  const locate = useCallback((options: PositionOptions) => {
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => {
         const previous = locationRef.current
@@ -49,29 +54,32 @@ export function useUserLocation(): UserLocationState {
           setLocation(locationRef.current)
         }
         setAccuracyM(coords.accuracy)
+        setRefreshing(false)
         setError(null)
         setStatus("ready")
       },
       (err) => {
+        setRefreshing(false)
         // A failed refresh keeps the last good fix, unless access was revoked.
         if (locationRef.current && err.code !== err.PERMISSION_DENIED) return
         setError(describeError(err))
         setStatus("error")
       },
-      POSITION_OPTIONS,
+      options,
     )
   }, [])
 
   const request = useCallback(() => {
     if (!supported) return
     if (!locationRef.current) setStatus("pending")
-    locate()
+    setRefreshing(true)
+    locate(FRESH_OPTIONS)
   }, [supported, locate])
 
   useEffect(() => {
-    if (supported) locate()
+    if (supported) locate(POSITION_OPTIONS)
   }, [supported, locate])
 
-  if (!supported) return { location: null, status: "error", error: UNSUPPORTED_ERROR, accuracyM: null, request }
-  return { location, status, error, accuracyM, request }
+  if (!supported) return { location: null, status: "error", error: UNSUPPORTED_ERROR, accuracyM: null, refreshing: false, request }
+  return { location, status, error, accuracyM, refreshing, request }
 }

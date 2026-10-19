@@ -38,6 +38,8 @@ export interface MapComponentProps {
   onLocate: () => void
   originIsManual: boolean
   accuracyM: number | null
+  /** Keeps the map on the rider during a ride, until they pan away. */
+  follow: boolean
   /** Shows the walk router credit while its paths are on the map. */
   showWalkCredit: boolean
   onPickDestination: (point: { lat: number; lng: number }, source: "drop" | "drag") => void
@@ -86,6 +88,7 @@ export default function MapComponent({
   onLocate,
   originIsManual,
   accuracyM,
+  follow,
   showWalkCredit,
   onPickDestination,
   onPickOrigin,
@@ -95,6 +98,7 @@ export default function MapComponent({
   const mapRef = useRef<L.Map | null>(null)
   const tripLayerRef = useRef<L.LayerGroup | null>(null)
   const endpointLayerRef = useRef<L.LayerGroup | null>(null)
+  const followRef = useRef(true)
 
   const dropAt = useEffectEvent((latlng: L.LatLng) => {
     const map = mapRef.current
@@ -197,6 +201,10 @@ export default function MapComponent({
     container.addEventListener("pointerup", onUp)
     container.addEventListener("pointercancel", onUp)
     map.on("movestart zoomstart", cancel)
+    // Panning by hand pauses follow mode; Locate resumes it.
+    map.on("dragstart", () => {
+      followRef.current = false
+    })
     map.on("contextmenu", (event: L.LeafletMouseEvent) => {
       // Touch browsers fire contextmenu on long-press too; the timer already handles that.
       if (lastPointerType === "mouse") dropAt(event.latlng)
@@ -270,10 +278,13 @@ export default function MapComponent({
   const hadOriginRef = useRef(false)
 
   // Draws the trip; frames it only when the shell asks, so pin drags keep the rider's view.
+  // Keyed on whether there is an origin, not where, so live ride fixes don't redraw the trip.
+  const hasOrigin = origin != null
   useEffect(() => {
     const map = mapRef.current
     const layer = tripLayerRef.current
     if (!map || !layer) return
+    const { origin } = readEnds()
 
     if (lastFitKeyRef.current !== fitKey) {
       lastFitKeyRef.current = fitKey
@@ -296,10 +307,36 @@ export default function MapComponent({
     else fit(bounds)
     // Keep waiting for the trip when both ends are known but plans aren't ready yet.
     fitPendingRef.current = !trip && origin != null && destination != null && !routeIndex
-  }, [trip, routeIndex, origin, destination, fitKey])
+  }, [trip, routeIndex, hasOrigin, destination, fitKey])
+
+  // Centres the rider in the part of the map the sheet and header leave visible.
+  const followTo = useEffectEvent((point: UserLocation) => {
+    const map = mapRef.current
+    if (!map || !followRef.current) return
+    const zoom = Math.max(map.getZoom(), 17)
+    const { top, bottom } = readInsets()
+    const center = map.unproject(map.project([point.lat, point.lng], zoom).add([0, (bottom - top) / 2]), zoom)
+    map.setView(center, zoom, { animate: !prefersReducedMotion() })
+  })
 
   useEffect(() => {
-    if (recenterKey === 0 || !gpsLocation) return
+    if (!follow) {
+      followRef.current = true
+      return
+    }
+    if (gpsLocation) followTo(gpsLocation)
+  }, [follow, gpsLocation])
+
+  // A Locate tap flies once, to the fix it has or the next one, not on every later fix.
+  const recenterPendingRef = useRef(false)
+  useEffect(() => {
+    followRef.current = true
+    recenterPendingRef.current = recenterKey !== 0
+  }, [recenterKey])
+
+  useEffect(() => {
+    if (!recenterPendingRef.current || !gpsLocation) return
+    recenterPendingRef.current = false
     const zoom = Math.max(mapRef.current?.getZoom() ?? 15, 15)
     if (prefersReducedMotion()) mapRef.current?.setView([gpsLocation.lat, gpsLocation.lng], zoom, { animate: false })
     else mapRef.current?.flyTo([gpsLocation.lat, gpsLocation.lng], zoom, { duration: 0.6 })

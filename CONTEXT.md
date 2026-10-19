@@ -154,6 +154,16 @@ All tunables live in `THRESHOLDS`, and the optimizer reads only those. The main 
 - **Bottom sheet.** `use-bottom-sheet.ts` snaps between peek, half and full. It moves by transform while dragging, then settles to a real height so the content can scroll. A flick over 0.4 px/ms moves one snap.
 - **Trip links.** `?to=&to_name=&from=&from_name=&trip=` restores the endpoints and the picked trip card. `from` is left out when the start is GPS.
 
+## Start ride
+
+- **Gate.** Start ride needs a precise fix: GPS accuracy within 100 m. A denied, unsupported or rougher fix ("approximate" mode, Wi-Fi) opens a prompt with the device's precise-location steps. Try again asks for a fresh fix (`maximumAge: 0`) and the ride starts as soon as one is precise.
+- **Frozen trip.** The active trip, with its street-snapped stops, is copied at start. Replans never swap it mid-ride.
+- **Tracking.** `watchPosition` with high accuracy, plus a screen wake lock where supported. `ride-progress.ts` snaps each fix onto the current leg's line and measures what is left.
+  - A leg ends within 40 m of its end. Being on a later leg's line, 100 m past its start, skips ahead, so boarding early never leaves the guide stuck.
+  - On a jeepney leg, within 50 m of the stop means waiting. Within 250 m of the drop-off shows a "Get off soon" alert and vibrates once.
+  - Arrival sticks, so GPS drift at the destination doesn't undo it.
+- **Map.** Follows the rider, centred in the part the sheet leaves visible. Panning pauses follow; Locate resumes it.
+
 ## Known limits
 
 - The start is GPS by default. Riders can drag the blue dot or long-press and pick "Start from here instead", but there is no typed "from" search yet.

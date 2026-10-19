@@ -34,6 +34,13 @@ export function haversineKm(aLat: number, aLng: number, bLat: number, bLng: numb
   return 2 * EARTH_RADIUS_KM * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s))
 }
 
+/** Length of a [lat, lng] polyline in km. */
+export function pathKm(path: [number, number][]): number {
+  let km = 0
+  for (let i = 1; i < path.length; i++) km += haversineKm(path[i - 1][0], path[i - 1][1], path[i][0], path[i][1])
+  return km
+}
+
 /** Compass bearing in degrees, 0 = north, clockwise. */
 export function bearingDeg(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const p1 = toRad(aLat)

@@ -1,7 +1,7 @@
 "use client"
 
 import { useId, useMemo, useState } from "react"
-import { ChevronDown, LocateFixed, Settings2, Share2, TriangleAlert } from "lucide-react"
+import { ChevronDown, LocateFixed, Navigation, Settings2, Share2, TriangleAlert } from "lucide-react"
 import LocationHelp from "@/components/location-help"
 import { CONTEXT_COLOR, TRICYCLE_COLOR, jeepneyColor } from "@/lib/leg-colors"
 import { formatDistance, formatDuration } from "@/lib/geo"
@@ -40,6 +40,8 @@ export interface TripPanelProps {
   /** Fastest by planner estimate, so the badge doesn't hop as street paths load. */
   fastestId: string | null
   onShare: () => void
+  /** Starts live guidance along the active trip. */
+  onStartRide: () => void
   /** Short confirmation after sharing, such as "Link copied". */
   shareStatus: string
 }
@@ -66,7 +68,7 @@ function planBadge(plan: TripPlan): string {
 }
 
 // The route name painted like a jeepney windshield signboard, with the leg's map colour as a stripe.
-function Signboard({ name, color, size = "md" }: { name: string; color: string; size?: "sm" | "md" }) {
+export function Signboard({ name, color, size = "md" }: { name: string; color: string; size?: "sm" | "md" }) {
   return (
     <span
       className={cn(
@@ -333,7 +335,7 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
 }
 
 export default function TripPanel(props: TripPanelProps) {
-  const { destination, locationError, accuracyM, onRetryLocation, routesReady, trips, activeIndex, onSelect, fare, collapsed, originIsManual, fastestId, onShare, shareStatus } = props
+  const { destination, locationError, accuracyM, onRetryLocation, routesReady, trips, activeIndex, onSelect, fare, collapsed, originIsManual, fastestId, onShare, onStartRide, shareStatus } = props
   const locationStatus = originIsManual ? "ready" : props.locationStatus
   const fares = useMemo(() => trips.map((trip) => planFarePhp(trip, fare)), [trips, fare])
   const place = destination ? shortPlaceName(destination.name) : ""
@@ -449,6 +451,19 @@ export default function TripPanel(props: TripPanelProps) {
                   <LegRow legs={trip.legs} />
                 </span>
               </button>
+
+              {isActive && (
+                <div className="px-3 pb-3">
+                  <button
+                    type="button"
+                    onClick={onStartRide}
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[var(--dg-navy)] px-4 text-sm font-semibold text-white hover:bg-[var(--dg-navy)]/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--dg-yellow)]"
+                  >
+                    <Navigation className="size-4" aria-hidden />
+                    Start ride
+                  </button>
+                </div>
+              )}
 
               {isActive && (
                 <div className={cn(collapsed && "max-md:hidden")}>

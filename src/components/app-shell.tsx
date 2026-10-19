@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import OriginBar from "@/components/origin-bar"
+import PreciseLocationPrompt from "@/components/precise-location-prompt"
+import RidePanel from "@/components/ride-panel"
 import SearchBox from "@/components/search-box"
 import TripPanel from "@/components/trip-panel"
 import type { MapInsets } from "@/components/map-component"
-import { planTrips } from "@/lib/route-engine"
+import { planTrips, type TripPlan } from "@/lib/route-engine"
 import { isPeakHour } from "@/lib/loading-hubs"
 import { reversePlace } from "@/lib/photon"
 import { withRoutedGaps } from "@/lib/routed-trip"
@@ -16,6 +18,7 @@ import { useBottomSheet, type SheetSnap } from "@/lib/use-bottom-sheet"
 import { THRESHOLDS } from "@/lib/transport-config"
 import { useFareConfig } from "@/lib/use-fare-config"
 import { useRecentPlaces } from "@/lib/use-recent-places"
+import { useRide } from "@/lib/use-ride"
 import { useRouteData } from "@/lib/use-route-data"
 import { useUserLocation } from "@/lib/use-user-location"
 import { useWalkPaths } from "@/lib/use-walk-paths"
@@ -48,6 +51,8 @@ const readMobile = () => window.matchMedia(MOBILE_QUERY).matches
 const noSubscribe = () => () => {}
 const readSearch = () => window.location.search
 const SHARE_STATUS_MS = 3000
+// Rough fixes come from Wi-Fi or "approximate" mode, too coarse to say when to get off.
+const PRECISE_ACCURACY_M = 100
 
 // Tracks how much of the map the floating header covers on phones.
 function useHeaderInset(header: ElementRef, mobile: boolean) {
@@ -134,6 +139,26 @@ export default function AppShell() {
   // Badge from planner times, since only the active card gets street-path times.
   const fastestId = trips.length > 1 ? trips.reduce((best, t) => (t.totalDurationMin < best.totalDurationMin ? t : best)).id : null
   const shownTrips = useMemo(() => trips.map((trip, i) => (i === activeIndex && routedTrip ? routedTrip : trip)), [trips, activeIndex, routedTrip])
+
+  const { ride, start: beginRide, stop: endRide } = useRide()
+  // The trip tapped on, kept while waiting for a precise fix so a replan can't swap it.
+  const [ridePrompt, setRidePrompt] = useState<{ trip: TripPlan; destinationName: string } | null>(null)
+  const preciseFix = location.status === "ready" && location.location != null && location.accuracyM != null && location.accuracyM <= PRECISE_ACCURACY_M
+  const startRideNow = (trip: TripPlan, destinationName: string) => {
+    setRidePrompt(null)
+    beginRide(trip, destinationName, location.location, location.accuracyM)
+    setSnap("half")
+  }
+  // A ride needs a precise fix; otherwise ask for one and start as soon as it arrives.
+  const startRide = () => {
+    if (!routedTrip || !destination) return
+    if (preciseFix) startRideNow(routedTrip, destination.name)
+    else {
+      setRidePrompt({ trip: routedTrip, destinationName: destination.name })
+      location.request()
+    }
+  }
+  if (ridePrompt && preciseFix && !ride) startRideNow(ridePrompt.trip, ridePrompt.destinationName)
 
   const { visiblePx, readVisible } = useBottomSheet({
     enabled: mobile,
@@ -264,6 +289,8 @@ export default function AppShell() {
     if (status) shareTimerRef.current = setTimeout(() => setShareStatus(""), SHARE_STATUS_MS)
   }
 
+  const closeRidePrompt = useCallback(() => setRidePrompt(null), [])
+
   const routesReady = routeData != null
   const gpsStatus = originIsManual ? "ready" : location.status
 
@@ -352,26 +379,31 @@ export default function AppShell() {
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 md:px-5 md:pt-0">
             <div ref={contentRef}>
-              <TripPanel
-                destination={destination}
-                locationStatus={location.status}
-                locationError={location.error}
-                accuracyM={location.accuracyM}
-                onRetryLocation={locate}
-                routesReady={routesReady}
-                trips={shownTrips}
-                activeIndex={activeIndex}
-                onSelect={selectTrip}
-                fare={fare}
-                onFareChange={setFare}
-                onFareReset={resetFare}
-                fareIsDefault={fareIsDefault}
-                collapsed={sheetSnap === "peek"}
-                originIsManual={originIsManual}
-                fastestId={fastestId}
-                onShare={share}
-                shareStatus={shareStatus}
-              />
+              {ride ? (
+                <RidePanel ride={ride} preciseM={PRECISE_ACCURACY_M} onEnd={endRide} />
+              ) : (
+                <TripPanel
+                  destination={destination}
+                  locationStatus={location.status}
+                  locationError={location.error}
+                  accuracyM={location.accuracyM}
+                  onRetryLocation={locate}
+                  routesReady={routesReady}
+                  trips={shownTrips}
+                  activeIndex={activeIndex}
+                  onSelect={selectTrip}
+                  fare={fare}
+                  onFareChange={setFare}
+                  onFareReset={resetFare}
+                  fareIsDefault={fareIsDefault}
+                  collapsed={sheetSnap === "peek"}
+                  originIsManual={originIsManual}
+                  fastestId={fastestId}
+                  onShare={share}
+                  onStartRide={startRide}
+                  shareStatus={shareStatus}
+                />
+              )}
             </div>
           </div>
         </section>
@@ -379,24 +411,35 @@ export default function AppShell() {
 
       <div className="h-full w-full md:min-w-0 md:flex-1">
         <MapComponent
-          trip={routedTrip}
+          trip={ride?.trip ?? routedTrip}
           routeIndex={routeData?.index ?? null}
-          origin={origin}
-          gpsLocation={location.location}
+          origin={ride?.position ?? origin}
+          gpsLocation={ride?.position ?? location.location}
           destination={destination}
           insets={insets}
           readInsets={readInsets}
           recenterKey={recenterKey}
           fitKey={fitKey}
           onLocate={locate}
-          originIsManual={originIsManual}
-          accuracyM={location.accuracyM}
+          originIsManual={ride ? false : originIsManual}
+          accuracyM={ride ? ride.accuracyM : location.accuracyM}
+          follow={ride != null}
           showWalkCredit={walkPaths.size > 0}
           onPickDestination={pickDestination}
           onPickOrigin={pickOrigin}
           onDropAsOrigin={dropAsOrigin}
         />
       </div>
+      {ridePrompt && !ride && (
+        <PreciseLocationPrompt
+          reason={location.status === "error" ? "denied" : "approximate"}
+          accuracyM={location.accuracyM}
+          checking={location.status === "pending" || location.refreshing}
+          requiredM={PRECISE_ACCURACY_M}
+          onRetry={location.request}
+          onClose={closeRidePrompt}
+        />
+      )}
     </main>
   )
 }

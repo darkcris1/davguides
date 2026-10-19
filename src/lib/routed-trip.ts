@@ -1,6 +1,6 @@
 // Swaps straight gap legs for street paths; display only, the planner's ranking stays as it was.
 
-import { haversineKm, planarFrame, projectPointOnSegment } from "./geo"
+import { pathKm, planarFrame, projectPointOnSegment } from "./geo"
 import type { TripLeg, TripPlan } from "./route-engine"
 import { rideAlongRoute, sliceArcPath, type RouteIndex, type RouteIndexEntry } from "./route-index"
 import { THRESHOLDS, accessOptions, jeepneyMinutes } from "./transport-config"
@@ -37,12 +37,6 @@ function touchRoute(entry: RouteIndexEntry, path: [number, number][], from: numb
     if (best) return { index: k, arcKm: best.arcKm, point: best.point }
   }
   return null
-}
-
-function pathKm(path: [number, number][]): number {
-  let km = 0
-  for (let i = 1; i < path.length; i++) km += haversineKm(path[i - 1][0], path[i - 1][1], path[i][0], path[i][1])
-  return km
 }
 
 // Re-cuts a jeepney leg to new board and alight arcs, or returns null if that ride would change character.
