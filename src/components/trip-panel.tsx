@@ -10,7 +10,8 @@ import {
   DEFAULT_FARE,
   THRESHOLDS,
   formatPhp,
-  jeepneyFarePhp,
+  legFarePhp,
+  planFarePhp,
   tricycleFarePhp,
   type FareConfig,
 } from "@/lib/transport-config"
@@ -50,16 +51,6 @@ export interface TripPanelProps {
 const ROUGH_ACCURACY_M = 300
 
 const MAX_ACCESS_SEARCH_KM = THRESHOLDS.CANDIDATE_RADIUS_TIERS_KM[THRESHOLDS.CANDIDATE_RADIUS_TIERS_KM.length - 1]
-
-function legFarePhp(leg: TripLeg, fare: FareConfig): number {
-  if (leg.mode === "jeepney") return jeepneyFarePhp(leg.distanceKm, fare)
-  if (leg.mode === "tricycle") return tricycleFarePhp(leg.distanceKm, fare)
-  return 0
-}
-
-function planFarePhp(plan: TripPlan, fare: FareConfig): number {
-  return plan.legs.reduce((sum, leg) => sum + legFarePhp(leg, fare), 0)
-}
 
 function planBadge(plan: TripPlan): string {
   if (!plan.legs.some((leg) => leg.mode === "jeepney")) return plan.legs.some((l) => l.mode === "tricycle") ? "Tricycle" : "Walk"

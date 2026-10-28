@@ -1,5 +1,7 @@
 // Every planner tunable; THRESHOLDS feed the optimizer, FareConfig is display-only.
 
+import type { TripLeg, TripPlan } from "@/lib/route-engine"
+
 export const THRESHOLDS = {
   /** Urban walking with crossings. */
   WALK_SPEED_KMH: 4.5,
@@ -202,6 +204,16 @@ export function jeepneyFarePhp(rideKm: number, f: FareConfig = DEFAULT_FARE): nu
 export function tricycleFarePhp(distKm: number, f: FareConfig = DEFAULT_FARE): number {
   const excessKm = Math.max(0, Math.ceil(distKm - f.tricycleBaseKm))
   return applyDiscount(roundUpTo(f.tricycleBasePhp + excessKm * f.tricyclePerKmPhp, f.roundToPhp), f)
+}
+
+export function legFarePhp(leg: TripLeg, f: FareConfig = DEFAULT_FARE): number {
+  if (leg.mode === "jeepney") return jeepneyFarePhp(leg.distanceKm, f)
+  if (leg.mode === "tricycle") return tricycleFarePhp(leg.distanceKm, f)
+  return 0
+}
+
+export function planFarePhp(plan: TripPlan, f: FareConfig = DEFAULT_FARE): number {
+  return plan.legs.reduce((sum, leg) => sum + legFarePhp(leg, f), 0)
 }
 
 export function formatPhp(amount: number): string {

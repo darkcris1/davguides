@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css"
 import "maplibre-gl/dist/maplibre-gl.css"
 import { maplibreGL } from "@maplibre/maplibre-gl-leaflet/leaflet-maplibre-gl"
 import { LocateFixed, Minus, Plus } from "lucide-react"
+import InstallButton from "@/components/install-button"
 import { destinationPopupHtml, renderEndpoints, renderTrip } from "@/lib/trip-render"
 import type { TripPlan } from "@/lib/route-engine"
 import type { RouteIndex } from "@/lib/route-index"
@@ -364,6 +365,7 @@ export default function MapComponent({
         <button type="button" aria-label="Use my location" onClick={onLocate} className={controlClass}>
           <LocateFixed className="size-5" aria-hidden />
         </button>
+        <InstallButton className={controlClass} />
       </div>
     </div>
   )

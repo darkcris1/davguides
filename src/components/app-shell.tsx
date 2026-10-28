@@ -15,8 +15,10 @@ import { reversePlace } from "@/lib/photon"
 import { withRoutedGaps } from "@/lib/routed-trip"
 import { DROPPED_PIN, PINNED_START, buildTripUrl, parseTripUrl } from "@/lib/trip-url"
 import { useBottomSheet, type SheetSnap } from "@/lib/use-bottom-sheet"
-import { THRESHOLDS } from "@/lib/transport-config"
+import { THRESHOLDS, planFarePhp } from "@/lib/transport-config"
 import { useFareConfig } from "@/lib/use-fare-config"
+// Loaded early so the install prompt event isn't missed before the map chunk arrives.
+import "@/lib/use-install-prompt"
 import { useRecentPlaces } from "@/lib/use-recent-places"
 import { useRide } from "@/lib/use-ride"
 import { useRouteData } from "@/lib/use-route-data"
@@ -114,7 +116,12 @@ export default function AppShell() {
   const [oLat, oLng, dLat, dLng] = [origin?.lat, origin?.lng, destination?.lat, destination?.lng]
   const trips = useMemo(() => {
     if (!routeData || oLat == null || oLng == null || dLat == null || dLng == null) return []
-    return planTrips(routeData.routes, { lat: oLat, lng: oLng }, { lat: dLat, lng: dLng }, { peak })
+    const plans = planTrips(routeData.routes, { lat: oLat, lng: oLng }, { lat: dLat, lng: dLng }, { peak })
+    // Cheapest first at default fares, so fare edits don't reshuffle; ties keep the planner's time order.
+    return plans
+      .map((plan) => ({ plan, fare: planFarePhp(plan) }))
+      .sort((a, b) => a.fare - b.fare)
+      .map(({ plan }) => plan)
   }, [routeData, oLat, oLng, dLat, dLng, peak])
 
   // Reset the pick during render when the plans change, so the map never draws a stale index.
