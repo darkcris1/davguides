@@ -182,6 +182,9 @@ export const DEFAULT_FARE: FareConfig = {
   discountPct: 0,
 }
 
+// Fare editing is hidden for now; custom rates saved earlier are ignored until it returns.
+export const FARE_SETTINGS_ENABLED = false
+
 function roundUpTo(value: number, step: number): number {
   if (!step || step <= 0) return value
   // Guard against float dust turning 36.50 into 36.75.

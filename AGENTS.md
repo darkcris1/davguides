@@ -51,6 +51,10 @@ Run `npx tsc --noEmit && npm run lint && npm run build` before calling work done
 | `src/lib/use-*.ts` | Hooks for geolocation, lazy route data, fare settings and the live ride |
 | `src/lib/ride-progress.ts` | Pure step tracker for Start ride: current leg, distance left, get-off alert |
 | `src/components/ride-panel.tsx`, `precise-location-prompt.tsx` | Live ride guide, and the precise-location gate before it |
+| `src/lib/davao-places.ts` | 121 well-known places searchable offline. Keep the list under 5 KB minified. |
+| `src/lib/offline.ts`, `public/sw.js` | Service worker: caches the app, route data, visited tiles and walk paths |
+| `src/lib/walk-graph.ts` | Offline walk router for the installed app, reading `public/walk-graph.bin` |
+| `scripts/build-walk-graph.mjs` | `npm run walk-graph`: rebuilds `walk-graph.bin` from Overpass. Rerun when routes or streets change. |
 | `src/lib/site.ts` | Site name, URL, description and brand colours |
 | `src/lib/routes.ts` | About 800 KB of route GeoJSON. Never import it statically from client code. |
 | `public/` | `logo.svg` (wordmark), `logo-mark.svg`, PWA PNG icons |

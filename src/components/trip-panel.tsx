@@ -8,6 +8,7 @@ import { formatDistance, formatDuration } from "@/lib/geo"
 import {
   CONCESSION_DISCOUNT_PCT,
   DEFAULT_FARE,
+  FARE_SETTINGS_ENABLED,
   THRESHOLDS,
   formatPhp,
   legFarePhp,
@@ -481,7 +482,7 @@ export default function TripPanel(props: TripPanelProps) {
 
       <div className={cn("space-y-2", collapsed && "max-md:hidden")}>
         <DiscountToggle fare={fare} onFareChange={props.onFareChange} />
-        <FareSettings {...props} />
+        {FARE_SETTINGS_ENABLED && <FareSettings {...props} />}
       </div>
     </div>
   )

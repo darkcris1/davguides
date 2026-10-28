@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { Route } from "@/commons/models/maps"
+import { cacheLoadedAssets } from "./offline"
 import { getRouteIndex, type RouteIndex } from "./route-index"
 
 export interface RouteData {
@@ -24,6 +25,8 @@ export function useRouteData(): RouteData | null {
           if (!alive) return
           const typed = routes as Route[]
           setData({ routes: typed, index: getRouteIndex(typed) })
+          // The route chunk may have loaded before the service worker took over.
+          cacheLoadedAssets()
         })
         .catch(() => {
           if (alive) timer = setTimeout(() => load(attempt + 1), Math.min(30_000, 2_000 * 2 ** attempt))

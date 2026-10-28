@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useId, useRef, useState } from "react"
-import { Clock, Loader2, MapPin, Search, X } from "lucide-react"
+import { Clock, Loader2, MapPin, MapPinPlus, Search, X } from "lucide-react"
+import { findDavaoPlaces, mergePlaces } from "@/lib/davao-places"
 import { searchPlaces, type PlaceResult } from "@/lib/nominatim"
 import { suggestPlaces } from "@/lib/photon"
 import type { Location } from "@/commons/models/maps"
@@ -12,6 +13,8 @@ interface SearchBoxProps {
   value: Location | null
   onSelect: (location: Location | null) => void
   recent: Location[]
+  /** Puts a draggable pin in the middle of the map for places search can't find. */
+  onDropPin: () => void
 }
 
 interface Option {
@@ -38,13 +41,15 @@ const recentOption = (place: Location, i: number): Option => ({
   recent: true,
 })
 
-// Suggest after a typing pause, and only once the query says something.
+// Suggest after a typing pause, and only once the query says something; saved places need less.
 const SUGGEST_DELAY_MS = 300
 const SUGGEST_MIN_CHARS = 3
+const LOCAL_MIN_CHARS = 2
+const PIN_TIP_MS = 8000
 
-type Status = { kind: "idle" } | { kind: "searching" } | { kind: "results"; count: number } | { kind: "empty"; query: string } | { kind: "error"; message: string }
+type Status = { kind: "idle" } | { kind: "searching" } | { kind: "results"; count: number } | { kind: "empty"; query: string } | { kind: "error"; message: string } | { kind: "pin" }
 
-export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
+export default function SearchBox({ value, onSelect, recent, onDropPin }: SearchBoxProps) {
   const [query, setQuery] = useState(value ? shortPlaceName(value.name) : "")
   const [syncedValue, setSyncedValue] = useState(value)
   const [results, setResults] = useState<PlaceResult[]>([])
@@ -81,6 +86,13 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
     }
   }, [])
 
+  // The drag tip only needs to be read once.
+  useEffect(() => {
+    if (status.kind !== "pin") return
+    const timer = setTimeout(() => setStatus({ kind: "idle" }), PIN_TIP_MS)
+    return () => clearTimeout(timer)
+  }, [status])
+
   function cancelSuggest() {
     if (!suggestRef.current) return
     clearTimeout(suggestRef.current.timer)
@@ -91,11 +103,18 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
   const scheduleSuggest = (text: string) => {
     cancelSuggest()
     const q = text.trim()
+    // Saved places show at once and stay when the network is down.
+    const local = q.length >= LOCAL_MIN_CHARS ? findDavaoPlaces(q) : []
+    if (local.length > 0) {
+      setResults(local)
+      setOpen(document.activeElement === inputRef.current)
+      setStatus({ kind: "results", count: local.length })
+    }
     if (q.length < SUGGEST_MIN_CHARS) return
     const controller = new AbortController()
     const timer = setTimeout(async () => {
       try {
-        const places = await suggestPlaces(q, controller.signal)
+        const places = mergePlaces(local, await suggestPlaces(q, controller.signal))
         if (controller.signal.aborted) return
         setResults(places)
         setActive(-1)
@@ -130,13 +149,20 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
     abortRef.current = controller
     setStatus({ kind: "searching" })
 
+    const local = findDavaoPlaces(q)
     try {
-      // Photon steps in when Nominatim is rate limiting or down.
-      const places = await searchPlaces(q, controller.signal).catch((error) => {
-        if (controller.signal.aborted) throw error
-        return suggestPlaces(q, controller.signal)
-      })
+      // Photon steps in when Nominatim is rate limiting or down; saved places cover no connection at all.
+      const remote = await searchPlaces(q, controller.signal)
+        .catch((error) => {
+          if (controller.signal.aborted) throw error
+          return suggestPlaces(q, controller.signal)
+        })
+        .catch((error) => {
+          if (controller.signal.aborted || local.length === 0) throw error
+          return []
+        })
       if (controller.signal.aborted) return
+      const places = mergePlaces(local, remote)
       setResults(places)
       if (places.length === 1) {
         choose(toOption(places[0]).place)
@@ -150,7 +176,12 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
       if (controller.signal.aborted) return
       setResults([])
       setOpen(false)
-      setStatus({ kind: "error", message: error instanceof Error ? error.message : "Place search failed." })
+      const message = !navigator.onLine
+        ? "You're offline and no saved place matches"
+        : error instanceof Error
+          ? error.message
+          : "Place search failed."
+      setStatus({ kind: "error", message })
     }
   }
 
@@ -169,6 +200,15 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
     } else if (event.key === "Escape") {
       setOpen(false)
     }
+  }
+
+  const dropPin = () => {
+    cancelSuggest()
+    abortRef.current?.abort()
+    setResults([])
+    setOpen(false)
+    setStatus({ kind: "pin" })
+    onDropPin()
   }
 
   const clear = () => {
@@ -192,10 +232,12 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
           ? "1 place found."
           : `${status.count} places found. Use the arrow keys to choose.`
         : status.kind === "empty"
-          ? `No place in Davao City matches “${status.query}”. Try a landmark, mall or barangay name.`
+          ? `No place in Davao City matches “${status.query}”. Try a landmark, mall or barangay name, or drop a pin.`
           : status.kind === "error"
-            ? `${status.message}. Check your connection and search again.`
-            : ""
+            ? `${status.message}. Check your connection, or drop a pin.`
+            : status.kind === "pin"
+              ? "Pin dropped in the middle of the map. Drag it to where you're going."
+              : ""
 
   return (
     <form
@@ -228,7 +270,7 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
           onChange={(e) => {
             // A new query makes any in-flight search stale.
             abortRef.current?.abort()
-            if (searching) setStatus({ kind: "idle" })
+            if (searching || status.kind === "pin" || status.kind === "results") setStatus({ kind: "idle" })
             setQuery(e.target.value)
             setResults([])
             setOpen(e.target.value === "" && recent.length > 0)
@@ -254,13 +296,22 @@ export default function SearchBox({ value, onSelect, recent }: SearchBoxProps) {
         </button>
       </div>
 
-      <p role="status" aria-live="polite" className={cn(
-          "text-sm text-slate-800",
-          // A solid card, since the message floats over the map on phones.
-          status.kind === "empty" || status.kind === "error" ? "mt-2 rounded-2xl bg-white px-4 py-2.5 shadow-lg ring-1 ring-black/10" : "sr-only",
-        )}>
-        {message}
-      </p>
+      {/* A solid card, since the message floats over the map on phones. */}
+      <div className={cn(status.kind === "empty" || status.kind === "error" || status.kind === "pin" ? "mt-2 rounded-2xl bg-white px-4 py-2.5 shadow-lg ring-1 ring-black/10" : "contents")}>
+        <p role="status" aria-live="polite" className={cn("text-sm text-slate-800", (status.kind === "idle" || status.kind === "searching" || status.kind === "results") && "sr-only")}>
+          {message}
+        </p>
+        {(status.kind === "empty" || status.kind === "error") && (
+          <button
+            type="button"
+            onClick={dropPin}
+            className="mt-1.5 inline-flex min-h-11 items-center gap-2 rounded-full bg-[var(--dg-navy)] px-4 text-sm font-medium text-white hover:bg-[var(--dg-navy)]/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--dg-yellow)]"
+          >
+            <MapPinPlus className="size-4" aria-hidden />
+            Drop a pin instead
+          </button>
+        )}
+      </div>
 
       {open && options.length > 0 && (
         <ul

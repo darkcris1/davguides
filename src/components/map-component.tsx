@@ -36,6 +36,8 @@ export interface MapComponentProps {
   recenterKey: number
   /** Bumped when the map should frame the trip; pin drags don't bump it. */
   fitKey: number
+  /** Bumped to drop the destination pin in the middle of the visible map. */
+  dropPinKey: number
   onLocate: () => void
   originIsManual: boolean
   accuracyM: number | null
@@ -51,7 +53,7 @@ export interface MapComponentProps {
 
 const LONG_PRESS_MS = 450
 const LONG_PRESS_SLOP_PX = 10
-const WALK_CREDIT = 'Walking paths © <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> OSRM'
+const WALK_CREDIT = 'Walking paths © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> OSRM'
 
 // Built as DOM nodes, so no outside string ever becomes HTML.
 function dropPopupContent(onStart: () => void): HTMLElement {
@@ -86,6 +88,7 @@ export default function MapComponent({
   readInsets,
   recenterKey,
   fitKey,
+  dropPinKey,
   onLocate,
   originIsManual,
   accuracyM,
@@ -327,6 +330,19 @@ export default function MapComponent({
     }
     if (gpsLocation) followTo(gpsLocation)
   }, [follow, gpsLocation])
+
+  // The middle of the visible map, clear of the header and sheet.
+  const dropAtCenter = useEffectEvent(() => {
+    const map = mapRef.current
+    if (!map) return
+    const { top, bottom } = readInsets()
+    const size = map.getSize()
+    const point = map.containerPointToLatLng([size.x / 2, (top + size.y - bottom) / 2])
+    onPickDestination({ lat: point.lat, lng: point.lng }, "drop")
+  })
+  useEffect(() => {
+    if (dropPinKey !== 0) dropAtCenter()
+  }, [dropPinKey])
 
   // A Locate tap flies once, to the fix it has or the next one, not on every later fix.
   const recenterPendingRef = useRef(false)

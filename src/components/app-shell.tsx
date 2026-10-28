@@ -16,6 +16,7 @@ import { withRoutedGaps } from "@/lib/routed-trip"
 import { DROPPED_PIN, PINNED_START, buildTripUrl, parseTripUrl } from "@/lib/trip-url"
 import { useBottomSheet, type SheetSnap } from "@/lib/use-bottom-sheet"
 import { THRESHOLDS, planFarePhp } from "@/lib/transport-config"
+import { registerServiceWorker } from "@/lib/offline"
 import { useFareConfig } from "@/lib/use-fare-config"
 // Loaded early so the install prompt event isn't missed before the map chunk arrives.
 import "@/lib/use-install-prompt"
@@ -78,6 +79,7 @@ export default function AppShell() {
   const [originOverride, setOriginOverride] = useState<Location | null>(null)
   const [recenterKey, setRecenterKey] = useState(0)
   const [fitKey, setFitKey] = useState(0)
+  const [dropPinKey, setDropPinKey] = useState(0)
   const [snap, setSnap] = useState<SheetSnap>("peek")
   const [shareStatus, setShareStatus] = useState("")
   const location = useUserLocation()
@@ -95,6 +97,8 @@ export default function AppShell() {
   const lookupRef = useRef<{ origin?: AbortController; destination?: AbortController }>({})
   const shareTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const peak = useSyncExternalStore(subscribeMinute, readPeak, () => false)
+
+  useEffect(registerServiceWorker, [])
 
   // A shared link fills in the trip once, during render, so there is no flash of the empty state.
   const search = useSyncExternalStore(noSubscribe, readSearch, () => null)
@@ -336,7 +340,7 @@ export default function AppShell() {
               </span>
             </div>
             <div className="min-w-0 flex-1 space-y-2 md:w-full">
-              <SearchBox value={destination} onSelect={selectDestination} recent={recent} />
+              <SearchBox value={destination} onSelect={selectDestination} recent={recent} onDropPin={() => setDropPinKey((k) => k + 1)} />
               {(destination || originIsManual) && (
                 <OriginBar
                   manualName={originOverride?.name ?? null}
@@ -427,6 +431,7 @@ export default function AppShell() {
           readInsets={readInsets}
           recenterKey={recenterKey}
           fitKey={fitKey}
+          dropPinKey={dropPinKey}
           onLocate={locate}
           originIsManual={ride ? false : originIsManual}
           accuracyM={ride ? ride.accuracyM : location.accuracyM}

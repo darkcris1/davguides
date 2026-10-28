@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useSyncExternalStore } from "react"
-import { DEFAULT_FARE, type FareConfig } from "./transport-config"
+import { DEFAULT_FARE, FARE_SETTINGS_ENABLED, type FareConfig } from "./transport-config"
 
 const STORAGE_KEY = "davguides.fare"
 
@@ -30,7 +30,8 @@ let current: FareConfig | null = null
 function load(): FareConfig {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
-    return stored ? sanitize(JSON.parse(stored)) : DEFAULT_FARE
+    const fare = stored ? sanitize(JSON.parse(stored)) : DEFAULT_FARE
+    return FARE_SETTINGS_ENABLED ? fare : { ...DEFAULT_FARE, discountPct: fare.discountPct }
   } catch {
     // Corrupt or blocked storage just means defaults.
     return DEFAULT_FARE
@@ -62,11 +63,23 @@ function subscribe(listener: () => void) {
   }
 }
 
+// Custom rates stored before fare editing was hidden, so a discount toggle doesn't wipe them.
+function savedRates(): Partial<FareConfig> {
+  try {
+    const rates = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<FareConfig>
+    delete rates.discountPct
+    return rates
+  } catch {
+    return {}
+  }
+}
+
 function write(next: FareConfig) {
   current = next
   try {
     // Store only overrides, so future default fares still reach the rider.
-    const overrides = Object.fromEntries(Object.entries(next).filter(([key, value]) => DEFAULT_FARE[key as keyof FareConfig] !== value))
+    const changed = Object.fromEntries(Object.entries(next).filter(([key, value]) => DEFAULT_FARE[key as keyof FareConfig] !== value))
+    const overrides = FARE_SETTINGS_ENABLED ? changed : { ...savedRates(), ...changed }
     if (Object.keys(overrides).length === 0) window.localStorage.removeItem(STORAGE_KEY)
     else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides))
   } catch {

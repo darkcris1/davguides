@@ -1,6 +1,7 @@
 "use client"
 
 import { useSyncExternalStore } from "react"
+import { isInstalledApp } from "./offline"
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -28,9 +29,6 @@ if (typeof window !== "undefined") {
     installed = true
     notify()
   })
-  if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-    navigator.serviceWorker.register("/sw.js").catch(() => {})
-  }
 }
 
 const subscribe = (onChange: () => void) => {
@@ -38,15 +36,12 @@ const subscribe = (onChange: () => void) => {
   return () => listeners.delete(onChange)
 }
 
-const isStandalone = () =>
-  window.matchMedia("(display-mode: standalone)").matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
-
 // iPadOS reports itself as a Mac, so touch support tells them apart.
 const isIOS = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
 
 const readMode = (): InstallMode => {
-  if (installed || isStandalone()) return "none"
+  if (installed || isInstalledApp()) return "none"
   if (deferred) return "prompt"
   return isIOS() ? "ios" : "none"
 }
