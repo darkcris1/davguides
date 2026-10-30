@@ -160,7 +160,7 @@ export interface FareConfig {
   tricycleBaseKm: number
   /** Charged per whole km past the base distance. */
   tricyclePerKmPhp: number
-  /** Added when the tricycle crosses a national highway. */
+  /** Added for each national highway the tricycle crosses. */
   tricycleHighwayPhp: number
   /** Fares are rounded up to a multiple of this. */
   roundToPhp: number
@@ -207,15 +207,15 @@ export function jeepneyFarePhp(rideKm: number, f: FareConfig = DEFAULT_FARE): nu
 }
 
 // Regulated per-passenger fare; drivers often ask more for a special trip, so label it an estimate.
-export function tricycleFarePhp(distKm: number, f: FareConfig = DEFAULT_FARE, crossesHighway = false): number {
+export function tricycleFarePhp(distKm: number, f: FareConfig = DEFAULT_FARE, highwaysCrossed = 0): number {
   const excessKm = Math.max(0, Math.ceil(distKm - f.tricycleBaseKm))
-  const highway = crossesHighway ? f.tricycleHighwayPhp : 0
+  const highway = highwaysCrossed * f.tricycleHighwayPhp
   return applyDiscount(roundUpTo(f.tricycleBasePhp + excessKm * f.tricyclePerKmPhp + highway, f.roundToPhp), f)
 }
 
 export function legFarePhp(leg: TripLeg, f: FareConfig = DEFAULT_FARE): number {
   if (leg.mode === "jeepney") return jeepneyFarePhp(leg.distanceKm, f)
-  if (leg.mode === "tricycle") return tricycleFarePhp(leg.distanceKm, f, leg.crossesHighway)
+  if (leg.mode === "tricycle") return tricycleFarePhp(leg.distanceKm, f, leg.highwaysCrossed)
   return 0
 }
 

@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react"
 import type { Route } from "@/commons/models/maps"
 import { cacheLoadedAssets } from "./offline"
+import type { NationalRoad } from "./highway-crossing"
 import { getRouteIndex, type RouteIndex } from "./route-index"
 
 export interface RouteData {
   routes: Route[]
   index: RouteIndex
-  nationalRoads: [number, number][][]
+  nationalRoads: NationalRoad[]
 }
 
 // The route file is ~800 KB, so it loads after first paint instead of in the page bundle.

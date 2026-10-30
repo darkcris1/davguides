@@ -94,8 +94,8 @@ export interface TripLeg {
   tricycleMin?: number
   showTricycleOption?: boolean
   recommendedMode?: AccessMode
-  /** Gap leg crosses a national road, which adds the tricycle highway surcharge. */
-  crossesHighway?: boolean
+  /** National roads this gap leg crosses; each adds the tricycle highway surcharge. */
+  highwaysCrossed?: number
   instruction: string
 }
 

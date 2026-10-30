@@ -74,7 +74,7 @@ export function Signboard({ name, color, size = "md" }: { name: string; color: s
   )
 }
 
-function GapChip({ leg }: { leg: TripLeg }) {
+function GapChip({ leg, fare }: { leg: TripLeg; fare: FareConfig }) {
   const trike = leg.mode === "tricycle"
   return (
     <span
@@ -86,21 +86,37 @@ function GapChip({ leg }: { leg: TripLeg }) {
       <span aria-hidden>{trike ? "🛺" : "🚶"}</span>
       <span className="sr-only">{trike ? "Tricycle" : "Walk"}</span>
       {formatDistance(leg.distanceKm)}
+      {trike && <span className="font-semibold">· {formatPhp(legFarePhp(leg, fare))}</span>}
     </span>
   )
 }
 
-function LegRow({ legs }: { legs: TripLeg[] }) {
+// Each paid leg shows its own fare, so the pills add up to the card total.
+function LegRow({ legs, fare }: { legs: TripLeg[]; fare: FareConfig }) {
   let ordinal = -1
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       {legs.map((leg, i) => {
-        if (leg.mode !== "jeepney") return <GapChip key={i} leg={leg} />
+        if (leg.mode !== "jeepney") return <GapChip key={i} leg={leg} fare={fare} />
         ordinal++
-        return <Signboard key={i} name={leg.routeName ?? "Jeepney"} color={jeepneyColor(ordinal)} size="sm" />
+        return (
+          <span key={i} className="inline-flex items-center gap-1">
+            <Signboard name={leg.routeName ?? "Jeepney"} color={jeepneyColor(ordinal)} size="sm" />
+            <span className="text-xs font-semibold text-slate-700">{formatPhp(legFarePhp(leg, fare))}</span>
+          </span>
+        )
       })}
     </span>
   )
+}
+
+// Splits the tricycle fare into the distance fare and the per-highway charge.
+function TricycleBreakdown({ leg, fare }: { leg: TripLeg; fare: FareConfig }) {
+  const crossed = leg.highwaysCrossed ?? 0
+  const base = tricycleFarePhp(leg.distanceKm, fare)
+  const extra = tricycleFarePhp(leg.distanceKm, fare, crossed) - base
+  if (extra <= 0) return null
+  return <>: {formatPhp(base)} fare + {formatPhp(extra)} for {crossed === 1 ? "crossing a highway" : `crossing ${crossed} highways`}</>
 }
 
 function LegDetail({ leg, color, alternatives, fare }: { leg: TripLeg; color: string; alternatives: string[]; fare: FareConfig }) {
@@ -125,8 +141,8 @@ function LegDetail({ leg, color, alternatives, fare }: { leg: TripLeg; color: st
               <>
                 {" · "}
                 <span className={leg.recommendedMode === "tricycle" ? "font-semibold text-amber-800" : undefined}>
-                  tricycle {formatDuration(leg.tricycleMin)} (~{formatPhp(tricycleFarePhp(leg.distanceKm, fare, leg.crossesHighway))}
-                  {leg.crossesHighway && ", crosses highway"})
+                  tricycle {formatDuration(leg.tricycleMin)} (~{formatPhp(tricycleFarePhp(leg.distanceKm, fare, leg.highwaysCrossed))}
+                  {!!leg.highwaysCrossed && <TricycleBreakdown leg={leg} fare={fare} />})
                 </span>
               </>
             )}
@@ -442,7 +458,7 @@ export default function TripPanel(props: TripPanelProps) {
                   </span>
                 </span>
                 <span className="mt-2 block">
-                  <LegRow legs={trip.legs} />
+                  <LegRow legs={trip.legs} fare={fare} />
                 </span>
               </button>
 
