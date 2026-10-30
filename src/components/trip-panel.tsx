@@ -125,7 +125,8 @@ function LegDetail({ leg, color, alternatives, fare }: { leg: TripLeg; color: st
               <>
                 {" · "}
                 <span className={leg.recommendedMode === "tricycle" ? "font-semibold text-amber-800" : undefined}>
-                  tricycle {formatDuration(leg.tricycleMin)} (~{formatPhp(tricycleFarePhp(leg.distanceKm, fare))})
+                  tricycle {formatDuration(leg.tricycleMin)} (~{formatPhp(tricycleFarePhp(leg.distanceKm, fare, leg.crossesHighway))}
+                  {leg.crossesHighway && ", crosses highway"})
                 </span>
               </>
             )}
@@ -270,6 +271,7 @@ function FareSettings({ fare, onFareChange, onFareReset, fareIsDefault }: Pick<T
         <FareField label="Tricycle base fare" value={fare.tricycleBasePhp} step={1} suffix="₱" onCommit={set("tricycleBasePhp")} />
         <FareField label="Tricycle base covers" value={fare.tricycleBaseKm} step={0.5} suffix="km" positive onCommit={set("tricycleBaseKm")} />
         <FareField label="Tricycle extra km" value={fare.tricyclePerKmPhp} step={0.5} suffix="₱" onCommit={set("tricyclePerKmPhp")} />
+        <FareField label="Tricycle highway crossing" value={fare.tricycleHighwayPhp} step={1} suffix="₱" onCommit={set("tricycleHighwayPhp")} />
         <div className="flex items-center justify-between gap-3 pt-1">
           <p className="text-xs text-slate-600">Defaults follow the LTFRB jeepney fare from 28 Sept 2026 and Davao’s 2020 tricycle fare. Estimates only.</p>
           <button

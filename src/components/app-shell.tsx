@@ -9,6 +9,7 @@ import RidePanel from "@/components/ride-panel"
 import SearchBox from "@/components/search-box"
 import TripPanel from "@/components/trip-panel"
 import type { MapInsets } from "@/components/map-component"
+import { withHighwayCrossings } from "@/lib/highway-crossing"
 import { planTrips, type TripPlan } from "@/lib/route-engine"
 import { isPeakHour } from "@/lib/loading-hubs"
 import { reversePlace } from "@/lib/photon"
@@ -120,7 +121,9 @@ export default function AppShell() {
   const [oLat, oLng, dLat, dLng] = [origin?.lat, origin?.lng, destination?.lat, destination?.lng]
   const trips = useMemo(() => {
     if (!routeData || oLat == null || oLng == null || dLat == null || dLng == null) return []
-    const plans = planTrips(routeData.routes, { lat: oLat, lng: oLng }, { lat: dLat, lng: dLng }, { peak })
+    const plans = planTrips(routeData.routes, { lat: oLat, lng: oLng }, { lat: dLat, lng: dLng }, { peak }).map((plan) =>
+      withHighwayCrossings(plan, routeData.nationalRoads),
+    )
     // Cheapest first at default fares, so fare edits don't reshuffle; ties keep the planner's time order.
     return plans
       .map((plan) => ({ plan, fare: planFarePhp(plan) }))
@@ -146,7 +149,12 @@ export default function AppShell() {
   const activeTrip = trips[activeIndex] ?? null
   const walkPaths = useWalkPaths(activeTrip)
   const routeIndex = routeData?.index ?? null
-  const routedTrip = useMemo(() => (activeTrip ? withRoutedGaps(activeTrip, walkPaths, routeIndex) : null), [activeTrip, walkPaths, routeIndex])
+  const nationalRoads = routeData?.nationalRoads
+  // Street paths can move stops, so the highway check reruns on the moved ends.
+  const routedTrip = useMemo(
+    () => (activeTrip ? withHighwayCrossings(withRoutedGaps(activeTrip, walkPaths, routeIndex), nationalRoads ?? []) : null),
+    [activeTrip, walkPaths, routeIndex, nationalRoads],
+  )
   // Badge from planner times, since only the active card gets street-path times.
   const fastestId = trips.length > 1 ? trips.reduce((best, t) => (t.totalDurationMin < best.totalDurationMin ? t : best)).id : null
   const shownTrips = useMemo(() => trips.map((trip, i) => (i === activeIndex && routedTrip ? routedTrip : trip)), [trips, activeIndex, routedTrip])

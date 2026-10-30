@@ -8,6 +8,7 @@ import { getRouteIndex, type RouteIndex } from "./route-index"
 export interface RouteData {
   routes: Route[]
   index: RouteIndex
+  nationalRoads: [number, number][][]
 }
 
 // The route file is ~800 KB, so it loads after first paint instead of in the page bundle.
@@ -20,11 +21,11 @@ export function useRouteData(): RouteData | null {
 
     // Flaky mobile data can drop the chunk, so keep retrying with backoff.
     const load = (attempt: number) => {
-      import("./routes")
-        .then(({ routes }) => {
+      Promise.all([import("./routes"), import("./national-roads")])
+        .then(([{ routes }, { nationalRoads }]) => {
           if (!alive) return
           const typed = routes as Route[]
-          setData({ routes: typed, index: getRouteIndex(typed) })
+          setData({ routes: typed, index: getRouteIndex(typed), nationalRoads })
           // The route chunk may have loaded before the service worker took over.
           cacheLoadedAssets()
         })
