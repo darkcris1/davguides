@@ -67,7 +67,7 @@ export default function InstallButton({ className }: { className: string }) {
   )
 }
 
-// Bottom-anchored modal; focuses `focusRef` on open and hands focus back to the opener on close.
+// Centered modal; focuses `focusRef` on open and hands focus back to the opener on close.
 function Modal({
   onClose,
   focusRef,
@@ -97,14 +97,14 @@ function Modal({
   }, [onClose, focusRef])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl"
+        className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"
       >
         <h2 id={titleId} className="font-signboard text-2xl font-bold uppercase tracking-wide text-[var(--dg-ink)]">
           {title}
