@@ -176,6 +176,35 @@
   cursor: grab;
 }
 
+/* First-visit coach on the start pin: a short bob plus a tooltip, so riders see it moves. */
+@media (prefers-reduced-motion: no-preference) {
+  .dg-nudge {
+    animation: dg-nudge 900ms ease-in-out 600ms 3;
+  }
+}
+@keyframes dg-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-10px);
+  }
+}
+/* Doubled class beats leaflet.css, which loads after this file. */
+.leaflet-tooltip.dg-drag-hint {
+  background: var(--dg-navy);
+  color: #fff;
+  border: 0;
+  border-radius: 9999px;
+  padding: 4px 10px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.leaflet-tooltip-top.dg-drag-hint::before {
+  border-top-color: var(--dg-navy);
+}
+
 .dg-drop-popup .leaflet-popup-content {
   margin: 10px 12px;
 }

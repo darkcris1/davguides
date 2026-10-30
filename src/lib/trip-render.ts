@@ -49,10 +49,10 @@ function pinIcon(color: string): L.DivIcon {
   })
 }
 
-function originIcon(color: string, size: number): L.DivIcon {
+function originIcon(color: string, size: number, nudge = false): L.DivIcon {
   return L.divIcon({
     className: "dg-marker dg-draggable",
-    html: `<div class="dg-lift" style="width:${HIT_PX}px;height:${HIT_PX}px;display:flex;align-items:center;justify-content:center"><div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)"></div></div>`,
+    html: `<div class="dg-lift${nudge ? " dg-nudge" : ""}" style="width:${HIT_PX}px;height:${HIT_PX}px;display:flex;align-items:center;justify-content:center"><div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.45)"></div></div>`,
     iconSize: [HIT_PX, HIT_PX],
     iconAnchor: [HIT_PX / 2, HIT_PX / 2],
   })
@@ -181,6 +181,10 @@ export interface EndpointOptions {
   accuracyM: number | null
   onMoveOrigin: (latlng: L.LatLng) => void
   onMoveDestination: (latlng: L.LatLng) => void
+  /** How long to coach a first-time rider that the start drags, ms; 0 for no hint. */
+  dragHintMs?: number
+  /** `seen` is false when the hint timed out behind a modal. */
+  onDragHintDone?: (seen: boolean) => void
 }
 
 // Hide the accuracy ring once it is too big to mean anything.
@@ -232,15 +236,31 @@ export function renderEndpoints(
     }
     const label = options.originIsManual ? "Your start. Drag to move it." : "You are here. Drag to start somewhere else."
     const marker = L.marker([origin.lat, origin.lng], {
-      icon: options.originIsManual ? originIcon(START_COLOR, 18) : originIcon(ORIGIN_COLOR, 16),
+      icon: options.originIsManual ? originIcon(START_COLOR, 18, !!options.dragHintMs) : originIcon(ORIGIN_COLOR, 16, !!options.dragHintMs),
       title: label,
       alt: label,
       draggable: true,
       autoPan: true,
       zIndexOffset: 500,
-    }).bindPopup(options.originIsManual ? "Your start" : "You are here")
-    makeDraggable(options.map, marker, options.onMoveOrigin, () => ring?.remove())
+    }).bindPopup(label)
+    const endHint = (seen = true) => {
+      // The bob animation would override the lift transform mid-drag.
+      marker.getElement()?.querySelector(".dg-nudge")?.classList.remove("dg-nudge")
+      marker.unbindTooltip()
+      options.onDragHintDone?.(seen)
+    }
+    makeDraggable(options.map, marker, options.onMoveOrigin, () => {
+      ring?.remove()
+      endHint()
+    })
     group.addLayer(marker)
+    if (options.dragHintMs) {
+      marker.bindTooltip("Drag to change your start", { permanent: true, direction: "top", offset: [0, -20], className: "dg-drag-hint" }).openTooltip()
+      // The popup says the same thing and would sit under the hint.
+      marker.once("popupopen", () => endHint())
+      // A marker already cleared by a re-render skips this; its replacement owns the hint.
+      setTimeout(() => marker.getElement() && endHint(!document.querySelector('[aria-modal="true"]')), options.dragHintMs)
+    }
   }
 
   if (destination) {

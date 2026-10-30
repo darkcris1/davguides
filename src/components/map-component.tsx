@@ -52,6 +52,8 @@ export interface MapComponentProps {
 }
 
 const LONG_PRESS_MS = 450
+const DRAG_HINT_KEY = "davguides.dragHint"
+const DRAG_HINT_MS = 7000
 const LONG_PRESS_SLOP_PX = 10
 const WALK_CREDIT = 'Walking paths © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>, <a href="https://routing.openstreetmap.de/" target="_blank" rel="noopener">FOSSGIS</a> OSRM'
 
@@ -246,6 +248,18 @@ export default function MapComponent({
     onPickDestination({ lat: latlng.lat, lng: latlng.lng }, "drag")
   })
   const readEnds = useEffectEvent(() => ({ origin, destination }))
+  // First visit only: coach that the start pin drags, until it is dragged or the hint times out.
+  const dragHintUntilRef = useRef<number | null>(null)
+  const dragHintMs = useEffectEvent(() => {
+    if (dragHintUntilRef.current == null) {
+      let seen = true
+      try {
+        seen = window.localStorage.getItem(DRAG_HINT_KEY) != null
+      } catch {}
+      dragHintUntilRef.current = seen ? 0 : Date.now() + DRAG_HINT_MS
+    }
+    return Math.max(0, dragHintUntilRef.current - Date.now())
+  })
   const destinationMarkerRef = useRef<L.Marker | null>(null)
 
   // Rebuilt only when a pin really moves, so a late place name never yanks a marker mid-drag.
@@ -254,12 +268,22 @@ export default function MapComponent({
     const map = mapRef.current
     if (!map || !endpointLayerRef.current) return
     const ends = readEnds()
+    const hintMs = ends.origin ? dragHintMs() : 0
     destinationMarkerRef.current = renderEndpoints(endpointLayerRef.current, ends.origin, ends.destination, {
       map,
       originIsManual,
       accuracyM,
       onMoveOrigin: moveOrigin,
       onMoveDestination: moveDestination,
+      dragHintMs: hintMs,
+      onDragHintDone: (seen) => {
+        dragHintUntilRef.current = 0
+        // A hint that ran out under the install modal was never seen, so it tries again next visit.
+        if (!seen) return
+        try {
+          window.localStorage.setItem(DRAG_HINT_KEY, "1")
+        } catch {}
+      },
     })
   }, [oLat, oLng, dLat, dLng, originIsManual, accuracyM])
 
