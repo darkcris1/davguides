@@ -60,12 +60,13 @@ function planBadge(plan: TripPlan): string {
 }
 
 // The route name painted like a jeepney windshield signboard, with the leg's map colour as a stripe.
-export function Signboard({ name, color, size = "md" }: { name: string; color: string; size?: "sm" | "md" }) {
+export function Signboard({ name, color, size = "md", className }: { name: string; color: string; size?: "sm" | "md"; className?: string }) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-[3px] border-l-[5px] bg-[var(--dg-yellow)] font-signboard font-bold uppercase leading-none tracking-wide text-[var(--dg-ink)] shadow-[inset_0_-2px_0_rgba(0,0,0,.12)]",
         size === "md" ? "px-2 py-1 text-[17px]" : "px-1.5 py-0.5 text-[14px]",
+        className,
       )}
       style={{ borderLeftColor: color }}
     >
@@ -100,9 +101,13 @@ function LegRow({ legs, fare }: { legs: TripLeg[]; fare: FareConfig }) {
         if (leg.mode !== "jeepney") return <GapChip key={i} leg={leg} fare={fare} />
         ordinal++
         return (
-          <span key={i} className="inline-flex items-center gap-1">
-            <Signboard name={leg.routeName ?? "Jeepney"} color={jeepneyColor(ordinal)} size="sm" />
-            <span className="text-xs font-semibold text-slate-700">{formatPhp(legFarePhp(leg, fare))}</span>
+          // Signboard and fare fused into one tag, so the price reads as this jeep's.
+          <span key={i} className="inline-flex items-stretch rounded-[3px] shadow-sm">
+            <Signboard name={leg.routeName ?? "Jeepney"} color={jeepneyColor(ordinal)} size="sm" className="rounded-r-none" />
+            <span className="flex items-center rounded-r-[3px] bg-[var(--dg-navy)] px-1.5 text-xs font-semibold tabular-nums text-white">
+              <span className="sr-only">, fare </span>
+              {formatPhp(legFarePhp(leg, fare))}
+            </span>
           </span>
         )
       })}
